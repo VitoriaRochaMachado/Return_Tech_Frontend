@@ -273,15 +273,32 @@ function ChallengeForm({ onCreated }) {
   const [loading, setLoading] = useState(false);
   async function submit(event) {
     event.preventDefault();
-    setLoading(true); setError("");
-    const fields = Object.fromEntries(new FormData(event.currentTarget));
-    fields.skills = fields.skills.split(",").map((x) => x.trim()).filter(Boolean);
+
+    const form = event.currentTarget;
+
+    setLoading(true);
+    setError("");
+
+    const fields = Object.fromEntries(new FormData(form));
+
+    fields.skills = fields.skills
+      .split(",")
+      .map((skill) => skill.trim())
+      .filter(Boolean);
+
     try {
-      await api("/challenges", { method: "POST", body: JSON.stringify(fields) });
-      event.currentTarget.reset();
-      onCreated();
-    } catch (err) { setError(err.message); }
-    finally { setLoading(false); }
+      await api("/challenges", {
+        method: "POST",
+        body: JSON.stringify(fields),
+      });
+
+      form.reset();
+      await onCreated();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
   }
   return <form className="editor-form" onSubmit={submit}>
     <div className="form-grid"><label className="wide">Título do desafio<input name="title" required placeholder="Ex.: Investigação de incidente em ambiente cloud" /></label><label>Nível<select name="level"><option>Júnior</option><option>Intermediário</option><option>Sênior</option></select></label><label>Modelo<select name="work_mode"><option>Remoto</option><option>Híbrido</option><option>Presencial</option></select></label><label className="wide">Contexto e objetivo<textarea name="description" required rows="6" placeholder="Descreva o cenário, o problema e o que espera da solução..." /></label><label className="wide">Entregáveis<textarea name="deliverables" required rows="4" placeholder="Relatório, recomendações, evidências..." /></label><label>Competências<input name="skills" required placeholder="SOC, AWS, Python" /></label><label>Prazo<input type="date" name="deadline" required /></label></div>
