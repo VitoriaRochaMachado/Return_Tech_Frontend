@@ -1,5 +1,7 @@
 # Return Tech — Frontend React
 
+> **Atualização: editor e correção automática.** Leia [INTEGRACAO_JUDGE0.md](INTEGRACAO_JUDGE0.md) para configurar o serviço, testar a demonstração e cadastrar os testes. Use os `.env` existentes: no frontend fica somente `VITE_API_URL`; MongoDB, JWT e Judge0 ficam no backend.
+
 Interface web da Return Tech, plataforma que conecta empresas a estudantes e profissionais de cibersegurança por meio de desafios técnicos e processos seletivos baseados em evidências práticas.
 
 Este repositório contém somente o **frontend**. A API Flask está no projeto `Return_Tech_Backend`.
@@ -114,13 +116,15 @@ O frontend não acessa o MongoDB diretamente. Toda leitura ou alteração de dad
 
 ## Arquivo `.env` do frontend
 
-Para a configuração local atual, não é necessário criar um `.env` no frontend. O endereço `http://localhost:5000/api` já é utilizado como padrão.
-
-Se futuramente a API for publicada em outro endereço, crie um arquivo `.env` dentro de `Return_Tech_Frontend`:
+Continue usando o `.env` existente dentro de `Return_Tech_Frontend`. Nesta revisão, ele contém somente o endereço público da API Flask:
 
 ```env
-VITE_API_URL=https://endereco-da-api/api
+VITE_API_URL=http://localhost:5000/api
 ```
+
+Se a API for publicada em outro endereço, atualize essa mesma linha, mantendo `/api` no final. Esse também é o endereço padrão usado pelo código quando a variável está ausente.
+
+As configurações de Flask, MongoDB e JWT que estavam copiadas neste arquivo foram retiradas. Esses dados e as chaves do Judge0 pertencem exclusivamente ao `.env` do backend. Não copie o `.env` do backend para o frontend. Remova o antigo `.env.example` caso ele ainda esteja na pasta; não é preciso criar outro arquivo de configuração.
 
 Depois de modificar esse arquivo, pare o Vite com `Ctrl + C` e execute novamente:
 

@@ -24,7 +24,10 @@ export async function api(path, options = {}) {
 
   if (!response.ok) {
     const message = typeof data === "object" ? data.error || data.message : data;
-    throw new Error(message || "Ocorreu um erro na requisição.");
+    const error = new Error(message || "Ocorreu um erro na requisição.");
+    error.status = response.status;
+    error.data = typeof data === "object" ? data : null;
+    throw error;
   }
 
   return data;
