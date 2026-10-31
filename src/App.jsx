@@ -330,19 +330,12 @@ function EvaluationCard({ submission, onEvaluated }) {
 
 function CompanyDashboard() {
   const [codingSettings, setCodingSettings] = useState(null);
-  const [creatingDemo, setCreatingDemo] = useState(false);
   const [active, setActive] = useState("overview");
   const [data, setData] = useState({ challenges: [], submissions: [], profile: {} });
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
   const load = useCallback(async () => { setLoading(true); try { setData(await api("/dashboard")); } catch (err) { setToast({ message: err.message, kind: "error" }); } finally { setLoading(false); } }, []);
   useEffect(() => { load(); }, [load]);
-  async function createDemo() {
-    setCreatingDemo(true);
-    try { await api("/coding/demo", { method: "POST" }); setToast({ message: "Demonstração criada como rascunho. Publique para testar como candidato." }); setActive("overview"); await load(); }
-    catch (err) { setToast({ message: err.message, kind: "error" }); }
-    finally { setCreatingDemo(false); }
-  }
   async function challengeAction(id, action) { try { await api(`/challenges/${id}/status`, { method: "PATCH", body: JSON.stringify({ action }) }); setToast({ message: action === "publish" ? "Desafio publicado." : "Desafio encerrado." }); await load(); } catch (err) { setToast({ message: err.message, kind: "error" }); } }
   const pending = data.submissions.filter((x) => !x.evaluation);
   const shortlisted = data.submissions.filter((x) => x.evaluation?.decision === "shortlisted");
@@ -350,7 +343,7 @@ function CompanyDashboard() {
   return <DashboardLayout role="company" active={active} setActive={setActive}>
     {loading && <div className="loader">CARREGANDO DADOS<span>_</span></div>}
     {!loading && active === "overview" && <><PageHeader eyebrow="PAINEL DA EMPRESA" title={`Olá, ${data.profile.organization_name || data.profile.name}.`} description="Acompanhe seus processos seletivos em cibersegurança." action={<button className="primary-button small" onClick={() => setActive("publish")}>+ NOVO DESAFIO</button>} /><div className="metrics"><Metric number={data.challenges.filter((x) => x.status === "published").length} label="Processos ativos" detail="Publicados" /><Metric number={totalParticipants} label="Participantes" detail="Em desafios" /><Metric number={pending.length} label="Para avaliar" detail="Entregas pendentes" /><Metric number={shortlisted.length} label="Shortlist" detail="Talentos" /></div><h2 className="section-title">Seus desafios</h2><div className="card-grid">{data.challenges.length ? data.challenges.map((challenge) => <ChallengeCard key={challenge._id} challenge={challenge} role="company" onAction={challengeAction} onConfigure={setCodingSettings} />) : <EmptyState title="Nenhum desafio criado" text="Publique seu primeiro processo seletivo técnico." />}</div></>}
-    {!loading && active === "publish" && <><PageHeader eyebrow="NOVO PROCESSO SELETIVO" title="Crie um desafio técnico." description="Apresente um cenário real e defina as evidências que deseja receber." /><div className="coding-demo-bar"><p><strong>Teste o editor e a pontuação</strong><br />Crie um exercício de demonstração com exemplo e testes já configurados.</p><button className="outline-button small" disabled={creatingDemo} onClick={createDemo}>{creatingDemo ? "CRIANDO..." : "CRIAR DEMONSTRAÇÃO"}</button></div><ChallengeForm onCreated={() => { setToast({ message: "Rascunho criado. Agora você pode publicá-lo." }); setActive("overview"); load(); }} /></>}
+    {!loading && active === "publish" && <><PageHeader eyebrow="NOVO PROCESSO SELETIVO" title="Crie um desafio técnico." description="Apresente um cenário real e defina as evidências que deseja receber." /><ChallengeForm onCreated={() => { setToast({ message: "Rascunho criado. Agora você pode publicá-lo." }); setActive("overview"); load(); }} /></>}
     {!loading && active === "code-results" && <><PageHeader eyebrow="CORREÇÃO AUTOMÁTICA" title="Código e pontos" description="Acompanhe os resultados técnicos dos candidatos." /><CodingResults challenges={data.challenges} /></>}
     {!loading && active === "evaluations" && <><PageHeader eyebrow="ANÁLISE TÉCNICA" title="Avalie as entregas." description="Dê uma nota, deixe feedback e escolha quem avança." /><div className="evaluation-list">{data.submissions.length ? data.submissions.map((item) => <EvaluationCard key={item._id} submission={item} onEvaluated={() => { setToast({ message: "Avaliação salva." }); load(); }} />) : <EmptyState title="Nenhuma entrega recebida" text="As soluções enviadas pelos participantes aparecerão aqui." />}</div></>}
     {!loading && active === "shortlist" && <><PageHeader eyebrow="TALENTOS SELECIONADOS" title="Sua shortlist." description="Perfis que se destacaram nos desafios técnicos." /><div className="talent-grid">{shortlisted.length ? shortlisted.map((item) => <article className="talent-card" key={item._id}><div className="avatar large">{item.talent?.name?.slice(0, 2).toUpperCase()}</div><h3>{item.talent?.name}</h3><p>{item.talent?.headline}</p><div className="score">{item.evaluation.score}<small>/100</small></div><strong>{item.challenge?.title}</strong><div className="tag-row">{(item.talent?.skills || []).map((skill) => <span key={skill}>{skill}</span>)}</div><a href={`mailto:${item.talent?.email}`} className="primary-button small">ENTRAR EM CONTATO →</a></article>) : <EmptyState title="Shortlist vazia" text="Avalie uma entrega como aprovada para adicionar o talento." />}</div></>}

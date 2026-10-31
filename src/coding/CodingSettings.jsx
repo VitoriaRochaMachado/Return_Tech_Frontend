@@ -32,7 +32,7 @@ export default function CodingSettings({ challenge, onClose, onSaved }) {
   return <div className="modal-backdrop"><section className="modal coding-settings" role="dialog" aria-modal="true" aria-labelledby="coding-settings-title">
     <button className="modal-close" onClick={onClose} aria-label="Fechar configuração">×</button>
     <div className="eyebrow">AVALIAÇÃO AUTOMÁTICA</div><h2 id="coding-settings-title">{challenge.title}</h2>
-    <p>Cadastre o exemplo público, as linguagens e os testes privados. Os pontos são concedidos quando todos os testes passam.</p>
+    <p>Cadastre o exemplo público, as linguagens e os casos privados de avaliação. A pontuação é proporcional aos acertos, com o mesmo peso para cada caso.</p>
     <p className="code-hint">Linguagens: python, javascript, cpp. O campo example aparece para o candidato; tests fica restrito à empresa. A configuração fica bloqueada após a publicação.</p>
     <form onSubmit={save}><label>Configuração dos testes (JSON)<textarea className="config-json" aria-label="Configuração dos testes" value={text} onChange={(event) => setText(event.target.value)} rows="18" spellCheck="false" required /></label>
       {error && <p className="form-error" role="alert">{error}</p>}

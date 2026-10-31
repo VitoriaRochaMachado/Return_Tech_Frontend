@@ -1,5 +1,6 @@
 import { Component, lazy, Suspense, useEffect, useRef, useState } from "react";
 import { api } from "../api";
+import { formatPoints } from "./points";
 import { useAuth } from "../AuthContext";
 import "./coding.css";
 
@@ -17,7 +18,6 @@ export default function CodingWorkspace({ challenge, onClose, onUpdated }) {
   const [detail, setDetail] = useState(null);
   const [language, setLanguage] = useState("");
   const [source, setSource] = useState("");
-  const [stdin, setStdin] = useState("");
   const [job, setJob] = useState(null);
   const [best, setBest] = useState(0);
   const [error, setError] = useState("");
@@ -39,8 +39,7 @@ export default function CodingWorkspace({ challenge, onClose, onUpdated }) {
       const first = data.config.languages[0];
       setLanguage(first);
       setSource(savedCode(first, data.config));
-      setStdin(data.config.example.stdin);
-      setJob(data.latest_job);
+      setJob(data.latest_job?.mode === "submit" ? data.latest_job : null);
       setBest(data.best_score);
       setError(data.warning || "");
     }).catch((err) => { if (!cancelled) setError(err.message); });
@@ -93,17 +92,17 @@ export default function CodingWorkspace({ challenge, onClose, onUpdated }) {
     return () => clearTimeout(timer);
   }, [cooldown]);
 
-  async function execute(mode) {
+  async function submitSolution() {
     setSending(true);
     setError("");
     try {
       const data = await api(`/challenges/${challenge._id}/code-jobs`, {
-        method: "POST", body: JSON.stringify({ mode, language, source_code: source, stdin }),
+        method: "POST", body: JSON.stringify({ mode: "submit", language, source_code: source }),
       });
       setJob(data.job);
       setCooldown(true);
     } catch (err) {
-      if (err.data?.job) setJob(err.data.job);
+      if (err.data?.job?.mode === "submit") setJob(err.data.job);
       setError(err.message);
     } finally { setSending(false); }
   }
@@ -114,29 +113,28 @@ export default function CodingWorkspace({ challenge, onClose, onUpdated }) {
     <header className="coding-header"><div><div className="eyebrow">DESAFIO DE CÓDIGO</div><h2 id="coding-title">{challenge.title}</h2></div><button ref={close} className="outline-button small" onClick={onClose}>FECHAR ×</button></header>
     {!detail ? <div className="coding-loading">{error ? <><p role="alert">{error}</p><button className="outline-button" onClick={() => setRefresh((x) => x + 1)}>TENTAR NOVAMENTE</button></> : "Carregando editor..."}</div> : <>
       <div className="coding-body"><aside className="coding-instructions">
-        <span className="code-points">{detail.config.max_points} PONTOS</span>
+        <span className="code-points">{formatPoints(detail.config.max_points)} PONTOS</span>
         <h3>O desafio</h3><p className="preserve-lines">{challenge.description}</p>
         <h3>O que entregar</h3><p className="preserve-lines">{challenge.deliverables}</p>
         <h3>Exemplo de entrada</h3><pre>{detail.config.example.stdin || "(entrada vazia)"}</pre>
         <h3>Saída esperada</h3><pre>{detail.config.example.expected_output || "(saída vazia)"}</pre>
-        <div className="code-score"><span>Sua melhor pontuação</span><strong>{best}<small> / {detail.config.max_points}</small></strong></div>
-        <p className="code-hint">Todos os testes precisam passar para conquistar os pontos. Reenvios não somam pontos repetidos. Limite de {detail.config.cpu_time_limit}s de CPU por teste.</p>
+        <div className="code-score"><span>Sua melhor pontuação</span><strong>{formatPoints(best)}<small> / {formatPoints(detail.config.max_points)}</small></strong></div>
+        <p className="code-hint">A pontuação é proporcional aos casos corretos, com o mesmo peso para cada caso. Nos reenvios, sua melhor nota é mantida. Limite de {detail.config.cpu_time_limit}s de CPU por caso.</p>
       </aside><div className="coding-main">
         <div className="code-toolbar"><label>Linguagem<select value={language} onChange={(event) => { const key = event.target.value; setSource(savedCode(key, detail.config)); setLanguage(key); }}>{detail.language_options.map((item) => <option key={item.key} value={item.key}>{item.name}</option>)}</select></label><button className="text-button" onClick={() => setSimple(!simple)}>{simple ? "Usar editor completo" : "Usar editor simples"}</button></div>
         {simple ? fallback : <EditorBoundary fallback={fallback}><Suspense fallback={<div className="code-editor">Carregando editor...</div>}><CodeEditor value={source} language={detail.language_options.find((x) => x.key === language)?.editor} onChange={setSource} /></Suspense></EditorBoundary>}
-        <div className="code-console"><label>Entrada para experimentar<textarea aria-label="Entrada para experimentar" value={stdin} onChange={(event) => setStdin(event.target.value)} rows="3" spellCheck="false" /></label>
-          <div className="code-actions"><button className="outline-button small" disabled={disabled} aria-busy={busy} aria-describedby={!detail.runner_configured ? "coding-executor-warning" : undefined} onClick={() => execute("run")}>{sending ? "ENVIANDO..." : "EXECUTAR"}</button><button className="primary-button small" disabled={disabled} aria-busy={busy} aria-describedby={!detail.runner_configured ? "coding-executor-warning" : undefined} onClick={() => execute("submit")}>ENVIAR SOLUÇÃO →</button></div>
+        <div className="code-console">
+          <div className="code-actions"><button className="primary-button small" disabled={disabled} aria-busy={busy} aria-describedby={!detail.runner_configured ? "coding-executor-warning" : undefined} onClick={submitSolution}>{sending ? "ENVIANDO..." : "ENVIAR SOLUÇÃO →"}</button></div>
           {!detail.runner_configured && <p id="coding-executor-warning" className="form-error" role="alert">A execução está indisponível: o serviço de correção ainda não foi configurado pela equipe. Você pode continuar editando seu rascunho.</p>}
           {!detail.can_submit && <p className="form-error">O período de envio terminou. Você pode consultar seus resultados.</p>}
           {error && <p className="form-error" role="alert">{error}</p>}
           <div className="code-result" aria-live="polite">
-            {!job && <p>Execute para testar uma entrada. Envie a solução para receber a correção.</p>}
-            {pending(job) && <p className="code-running">{job.mode === "submit" ? "Corrigindo sua solução..." : "Executando seu código..."} Você pode fechar o editor e voltar depois.</p>}
+            {!job && <p>Escreva seu código e envie a solução para receber sua pontuação.</p>}
+            {pending(job) && <p className="code-running">Corrigindo sua solução... Você pode fechar o editor e voltar depois.</p>}
             {job?.status === "service_error" && <p className="form-error">{job.error}</p>}
-            {job?.status === "completed" && <>
-              <h3>{job.mode === "submit" ? `${job.score} / ${job.max_points} pontos · ${job.passed} de ${job.total} testes passaram` : job.results?.[0]?.passed ? "Execução concluída" : job.results?.[0]?.status}</h3>
-              {job.mode === "run" && <>{job.output?.stdout && <><h4>Saída</h4><pre>{job.output.stdout}</pre></>}{(job.output?.stderr || job.output?.compile_output) && <><h4>Detalhes da execução</h4><pre>{job.output.compile_output || job.output.stderr}</pre></>}{!job.output?.stdout && !job.output?.stderr && !job.output?.compile_output && <p>O programa não produziu saída.</p>}</>}
-              {job.mode === "submit" && <ul className="code-test-list">{job.results.map((item) => <li key={item.number} className={item.passed ? "passed" : "failed"}><span>{item.passed ? "✓" : "×"} Teste {item.number}</span><span>{item.status}</span></li>)}</ul>}
+            {job?.status === "completed" && job.mode === "submit" && <>
+              <h3>{formatPoints(job.score)} / {formatPoints(job.max_points)} pontos · {job.passed} de {job.total} casos corretos</h3>
+              <ul className="code-test-list">{job.results.map((item) => <li key={item.number} className={item.passed ? "passed" : "failed"}><span>{item.passed ? "✓" : "×"} Caso {item.number}</span><span>{item.status}</span></li>)}</ul>
             </>}
           </div>
         </div>
