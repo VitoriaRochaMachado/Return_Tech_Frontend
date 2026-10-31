@@ -1,227 +1,82 @@
-# Return Tech
+# Return Tech — Frontend React
 
-Plataforma que conecta estudantes e profissionais a empresas por meio de desafios e processos seletivos na área de cibersegurança.
+Interface web da Return Tech, plataforma que conecta empresas a estudantes e profissionais de cibersegurança por meio de desafios técnicos e processos seletivos baseados em evidências práticas.
+
+Este repositório contém somente o **frontend**. A API Flask está no projeto `Return_Tech_Backend`.
 
 ## Tecnologias
 
-- Frontend: React + Vite
-- Backend: Python + Flask
-- Banco de dados: MongoDB
-- Banco local: Docker
-- Autenticação: JWT
+- React
+- Vite
+- JavaScript
+- CSS
+- API REST
+- Autenticação JWT
 
-## Estrutura
+## Perfis disponíveis
 
-```text
-Return_Tech_Frontend/
-Return_Tech_Backend/
-```
+A aplicação possui dois fluxos principais:
+
+- **Estudante/Profissional:** criação de perfil, participação em desafios, envio de soluções, acompanhamento de avaliações e portfólio;
+- **Empresa:** criação de desafios, avaliação de entregas, consulta de candidatos e shortlist.
 
 ## Requisitos
 
 Antes de começar, instale:
 
-- Node.js 22 ou superior
-- Python 3.11 ou superior
-- Docker Desktop
-- Visual Studio Code
+- Node.js 22 ou superior;
+- Visual Studio Code ou outro editor de código;
+- Git, caso o projeto seja obtido pelo GitHub.
 
-## Arquivo `.env`
-
-O arquivo `.env` do backend não está no GitHub por segurança.
-
-Solicite o arquivo `.env` à responsável pelo projeto e coloque-o diretamente dentro da pasta:
-
-```text
-Return_Tech_Backend/
-├── .env
-├── run.py
-├── requirements.txt
-└── docker-compose.yml
-```
-
-Nunca envie o `.env` para o GitHub.
+O backend também precisa estar configurado e em execução.
 
 ---
 
-# Como executar o backend
+# Primeira execução
 
-Abra a pasta `Return_Tech_Backend` no VS Code e abra um terminal PowerShell.
+## 1. Abrir a pasta do frontend
 
-Execute cada comando separadamente.
+Abra a pasta `Return_Tech_Frontend` no VS Code.
 
-## 1. Criar o ambiente virtual
-
-Esta etapa só precisa ser feita na primeira execução:
-
-```powershell
-python -m venv .venv
-```
-
-## 2. Ativar o ambiente virtual
-
-```powershell
-.venv\Scripts\Activate.ps1
-```
-
-Quando estiver ativo, o terminal apresentará:
+No terminal PowerShell, confirme que ele está nessa pasta:
 
 ```text
-(.venv)
+Return_Tech_Frontend
 ```
 
-## 3. Instalar as dependências
-
-Esta etapa só precisa ser feita na primeira execução ou quando o `requirements.txt` mudar:
-
-```powershell
-pip install -r requirements.txt
-```
-
-## 4. Iniciar o MongoDB
-
-Abra o Docker Desktop e espere o Docker Engine iniciar.
-
-Depois, no terminal do backend:
-
-```powershell
-docker compose up -d
-```
-
-Confira se o MongoDB está funcionando:
-
-```powershell
-docker ps
-```
-
-Deve aparecer um contêiner chamado:
-
-```text
-return-tech-mongo
-```
-
-## 5. Iniciar o Flask
-
-```powershell
-python run.py
-```
-
-O backend ficará disponível em:
-
-```text
-http://127.0.0.1:5000
-```
-
-Para testar a API, acesse:
-
-```text
-http://127.0.0.1:5000/api/health
-```
-
-Resultado esperado:
-
-```json
-{
-  "service": "return-tech-api",
-  "status": "ok"
-}
-```
-
-Não feche esse terminal enquanto estiver utilizando o sistema.
-
----
-
-# Como executar o frontend
-
-Abra a pasta `Return_Tech_Frontend` em outra janela do VS Code ou abra um segundo terminal.
-
-## 1. Instalar as dependências
-
-Esta etapa só precisa ser feita na primeira execução:
+## 2. Instalar as dependências
 
 ```powershell
 npm install
 ```
 
-## 2. Iniciar o React
+Essa etapa precisa ser executada apenas na primeira vez ou quando o arquivo `package.json` for alterado.
+
+## 3. Iniciar o frontend
 
 ```powershell
 npm run dev
 ```
 
-O frontend ficará disponível em:
+O terminal deverá mostrar um endereço semelhante a:
+
+```text
+Local: http://localhost:5173/
+```
+
+Abra no navegador:
 
 ```text
 http://localhost:5173
 ```
 
-Não feche esse terminal enquanto estiver utilizando o sistema.
-
----
-
-# Ordem para iniciar o sistema
-
-Sempre execute nesta ordem:
-
-1. Abrir o Docker Desktop.
-2. Executar `docker compose up -d` no backend.
-3. Ativar a `.venv`.
-4. Executar `python run.py`.
-5. Executar `npm run dev` no frontend.
-6. Abrir `http://localhost:5173`.
-
-São necessários dois terminais:
-
-- Terminal 1: backend Flask;
-- Terminal 2: frontend React.
-
----
-
-# Como testar o fluxo completo
-
-1. Crie uma conta do tipo Empresa.
-2. Publique um desafio de cibersegurança.
-3. Abra uma janela anônima do navegador.
-4. Crie uma conta de Estudante/Profissional.
-5. Entre no desafio e envie uma solução.
-6. Volte para a conta da empresa.
-7. Avalie a entrega e adicione o participante à shortlist.
-
-A janela anônima é necessária para manter duas contas conectadas simultaneamente.
-
----
-
-# Como encerrar
-
-Nos terminais do Flask e React, pressione:
-
-```text
-Ctrl + C
-```
-
-Para parar o MongoDB, execute na pasta do backend:
-
-```powershell
-docker compose stop
-```
-
-Os dados permanecerão salvos no volume do Docker.
+Não feche o terminal enquanto estiver utilizando o sistema.
 
 ---
 
 # Próximas execuções
 
-Não é necessário instalar tudo novamente.
-
-## Backend
-
-```powershell
-.venv\Scripts\Activate.ps1
-docker compose up -d
-python run.py
-```
-
-## Frontend
+Depois que as dependências já estiverem instaladas, execute somente:
 
 ```powershell
 npm run dev
@@ -229,63 +84,180 @@ npm run dev
 
 ---
 
-# Problemas comuns
+# Conexão com o backend
 
-## Erro `dockerDesktopLinuxEngine`
+O frontend envia as solicitações para:
 
-O Docker Desktop não está ligado. Abra-o e aguarde o Engine iniciar.
-
-## Erro de conexão com `localhost:27017`
-
-O MongoDB não está funcionando. Execute:
-
-```powershell
-docker compose up -d
+```text
+http://localhost:5000/api
 ```
 
-## A página `http://127.0.0.1:5000` mostra 404
-
-Isso é normal. O backend não possui página visual na rota principal.
-
-Use:
+Antes de abrir o site, confirme que o backend está rodando. O teste abaixo deve retornar `status: ok`:
 
 ```text
 http://127.0.0.1:5000/api/health
 ```
 
+O fluxo local funciona assim:
+
+```text
+Navegador
+   ↓
+React — http://localhost:5173
+   ↓
+Flask — http://localhost:5000/api
+   ↓
+MongoDB Atlas
+```
+
+O frontend não acessa o MongoDB diretamente. Toda leitura ou alteração de dados passa pela API Flask.
+
+## Arquivo `.env` do frontend
+
+Para a configuração local atual, não é necessário criar um `.env` no frontend. O endereço `http://localhost:5000/api` já é utilizado como padrão.
+
+Se futuramente a API for publicada em outro endereço, crie um arquivo `.env` dentro de `Return_Tech_Frontend`:
+
+```env
+VITE_API_URL=https://endereco-da-api/api
+```
+
+Depois de modificar esse arquivo, pare o Vite com `Ctrl + C` e execute novamente:
+
+```powershell
+npm run dev
+```
+
+Nunca envie um `.env` para o GitHub.
+
+---
+
+# Ordem para iniciar o sistema completo
+
+São necessários dois terminais.
+
+## Terminal 1 — Backend
+
+Dentro de `Return_Tech_Backend`:
+
+```powershell
+.venv\Scripts\Activate.ps1
+python run.py
+```
+
+## Terminal 2 — Frontend
+
+Dentro de `Return_Tech_Frontend`:
+
+```powershell
+npm run dev
+```
+
+Depois, acesse:
+
+```text
+http://localhost:5173
+```
+
+O banco está no MongoDB Atlas. Portanto, o frontend não utiliza Docker e não é necessário executar `docker compose up -d`.
+
+---
+
+# Como testar o fluxo completo
+
+1. Acesse a tela inicial.
+2. Escolha o perfil **Empresa**.
+3. Crie uma conta e publique um desafio.
+4. Abra uma janela anônima do navegador.
+5. Escolha **Estudante/Profissional**.
+6. Crie outra conta e participe do desafio.
+7. Envie uma solução.
+8. Volte para a conta da empresa.
+9. Avalie a entrega e adicione o participante à shortlist, se desejar.
+
+A janela anônima permite manter as duas contas conectadas simultaneamente.
+
+---
+
+# Como encerrar
+
+No terminal do React, pressione:
+
+```text
+Ctrl + C
+```
+
+Isso encerra apenas o frontend. O MongoDB Atlas não precisa ser desligado.
+
+---
+
+# Problemas comuns
+
+## O comando `npm` não é reconhecido
+
+O Node.js não está instalado ou o terminal ainda não reconheceu a instalação.
+
+Instale o Node.js e reinicie o VS Code.
+
 ## O frontend não abre
+
+Execute:
+
+```powershell
+npm install
+npm run dev
+```
 
 Confirme se o terminal mostra:
 
 ```text
-Local: http://localhost:5173
+Local: http://localhost:5173/
 ```
 
-## O site abre, mas cadastro e login não funcionam
+## A porta 5173 já está ocupada
+
+O Vite pode selecionar outra porta automaticamente. Utilize o endereço exibido no terminal.
+
+Se o frontend abrir em outra porta, o backend pode precisar autorizar esse endereço na configuração de CORS.
+
+## O site abre, mas cadastro, login ou dados não funcionam
 
 Confirme se:
 
-- Docker Desktop está aberto;
-- `return-tech-mongo` aparece no `docker ps`;
-- Flask está rodando na porta 5000;
-- React está rodando na porta 5173.
+- o backend está rodando;
+- `http://127.0.0.1:5000/api/health` retorna `status: ok`;
+- o frontend foi aberto em `http://localhost:5173`;
+- o terminal do backend não mostra erros de conexão com o Atlas.
 
-# Return Tech — Frontend React
+## Erro ao instalar dependências
 
-Interface completa para estudantes/profissionais e empresas, conectada à API Flask.
+Exclua apenas a pasta `node_modules` e execute novamente:
 
-## Executar localmente
-
-1. Instale o Node.js 22 ou superior.
-2. Abra esta pasta no terminal.
-3. Rode:
-
-```bash
+```powershell
 npm install
-cp .env.example .env
-npm run dev
 ```
 
-No Windows (PowerShell), use `Copy-Item .env.example .env` no lugar do comando `cp`.
+Não execute `npm audit fix --force` sem revisar as alterações, pois esse comando pode instalar versões incompatíveis e quebrar o projeto.
 
-Acesse `http://localhost:5173`. O backend deve estar rodando em `http://localhost:5000`.
+---
+
+# Arquivos que não devem ir para o GitHub
+
+Confirme que o `.gitignore` contém:
+
+```gitignore
+node_modules/
+dist/
+.env
+.DS_Store
+```
+
+A pasta `node_modules` é recriada com `npm install` e não deve ser enviada ao repositório.
+
+---
+
+# Estado atual
+
+Este frontend faz parte de um MVP funcional para desenvolvimento e testes locais. O React ainda precisa ser iniciado no computador com `npm run dev`.
+
+Para disponibilizar o sistema publicamente, será necessário hospedar o frontend e configurar `VITE_API_URL` com o endereço público do backend.
