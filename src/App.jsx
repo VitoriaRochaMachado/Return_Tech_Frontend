@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, downloadSubmission } from "./api";
 import { useAuth } from "./AuthContext";
+import {
+  demoStorageKey,
+  getDemoChallenges,
+  getDemoSubmissions,
+  isDemoChallenge,
+  loadDemoState,
+  saveDemoState,
+} from "./demoChallenges";
 
 const icons = {
   student: "⌁",
@@ -210,7 +218,7 @@ function ChallengeCard({ challenge, role, onJoin, onSubmit, onAction }) {
   );
 }
 
-function SubmissionModal({ challenge, onClose, onDone }) {
+function SubmissionModal({ challenge, onClose, onDone, onDemoSubmit }) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   async function submit(event) {
@@ -218,8 +226,12 @@ function SubmissionModal({ challenge, onClose, onDone }) {
     setLoading(true);
     setError("");
     try {
-      await api(`/challenges/${challenge._id}/submissions`, { method: "POST", body: new FormData(event.currentTarget) });
-      onDone("Solução enviada com sucesso.");
+      if (isDemoChallenge(challenge._id)) {
+        await onDemoSubmit(challenge, new FormData(event.currentTarget));
+      } else {
+        await api(`/challenges/${challenge._id}/submissions`, { method: "POST", body: new FormData(event.currentTarget) });
+      }
+      onDone("Solução enviada com sucesso.", isDemoChallenge(challenge._id));
       onClose();
     } catch (err) {
       setError(err.message);
@@ -227,15 +239,26 @@ function SubmissionModal({ challenge, onClose, onDone }) {
       setLoading(false);
     }
   }
-  return <div className="modal-backdrop" onMouseDown={onClose}><div className="modal" onMouseDown={(e) => e.stopPropagation()}><button className="modal-close" onClick={onClose}>×</button><div className="eyebrow">NOVA ENTREGA</div><h2>{challenge.title}</h2><form onSubmit={submit}><label>Resumo da solução<textarea name="summary" required rows="5" placeholder="Explique sua abordagem, decisões e resultados..." /></label><label>Link complementar<input type="url" name="report_url" placeholder="https://github.com/..." /></label><label>Arquivo do relatório<input type="file" name="file" /></label>{error && <div className="form-error">{error}</div>}<button className="primary-button" disabled={loading}>{loading ? "ENVIANDO..." : "ENVIAR SOLUÇÃO →"}</button></form></div></div>;
+  return <div className="modal-backdrop" onMouseDown={onClose}><div className="modal" onMouseDown={(e) => e.stopPropagation()}><button className="modal-close" onClick={onClose}>×</button><div className="eyebrow">NOVA ENTREGA</div><h2>{challenge.title}</h2>{isDemoChallenge(challenge._id) && <p>Desafio demonstrativo: resumo e link ficam salvos somente neste navegador.</p>}<form onSubmit={submit}><label>Resumo da solução<textarea name="summary" required rows="5" placeholder="Explique sua abordagem, decisões e resultados..." /></label><label>Link complementar<input type="url" name="report_url" placeholder="https://github.com/..." /></label>{!isDemoChallenge(challenge._id) && <label>Arquivo do relatório<input type="file" name="file" /></label>}{error && <div className="form-error">{error}</div>}<button className="primary-button" disabled={loading}>{loading ? "ENVIANDO..." : "ENVIAR SOLUÇÃO →"}</button></form></div></div>;
 }
 
 function TalentDashboard() {
+  const { user } = useAuth();
   const [active, setActive] = useState("explore");
   const [data, setData] = useState({ challenges: [], submissions: [], profile: {} });
+  const [demoState, setDemoState] = useState({});
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null);
   const [toast, setToast] = useState(null);
+  const storageKey = demoStorageKey(user);
+
+  useEffect(() => {
+    try {
+      setDemoState(loadDemoState(storageKey));
+    } catch (err) {
+      setToast({ message: err.message, kind: "error" });
+    }
+  }, [storageKey]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -246,24 +269,56 @@ function TalentDashboard() {
   useEffect(() => { load(); }, [load]);
 
   async function join(id) {
+    if (isDemoChallenge(id)) {
+      try {
+        const nextState = { ...demoState, [id]: { ...demoState[id], participation: { status: "joined" } } };
+        saveDemoState(storageKey, nextState);
+        setDemoState(nextState);
+        setToast({ message: "Inscrição demonstrativa confirmada neste navegador." });
+      } catch (err) {
+        setToast({ message: err.message, kind: "error" });
+      }
+      return;
+    }
     try { await api(`/challenges/${id}/join`, { method: "POST" }); setToast({ message: "Inscrição confirmada!" }); await load(); }
     catch (err) { setToast({ message: err.message, kind: "error" }); }
   }
 
-  const participations = useMemo(() => data.challenges.filter((item) => item.participation), [data]);
+  const demoChallenges = useMemo(() => getDemoChallenges(demoState), [demoState]);
+  const demoSubmissions = useMemo(() => getDemoSubmissions(demoState), [demoState]);
+  const participations = useMemo(() => demoChallenges.filter((item) => item.participation), [demoChallenges]);
   const approved = useMemo(() => data.submissions.filter((item) => item.evaluation?.decision === "shortlisted"), [data]);
+
+  function submitDemoSolution(challenge, formData) {
+    const summary = String(formData.get("summary") || "").trim();
+    if (!summary) throw new Error("Informe o resumo da solução.");
+    const nextState = {
+      ...demoState,
+      [challenge._id]: {
+        ...demoState[challenge._id],
+        participation: { status: "submitted" },
+        submission: {
+          summary,
+          report_url: String(formData.get("report_url") || "").trim(),
+        },
+      },
+    };
+    saveDemoState(storageKey, nextState);
+    setDemoState(nextState);
+  }
 
   return <DashboardLayout role="talent" active={active} setActive={setActive}>
     {loading && <div className="loader">CARREGANDO DADOS<span>_</span></div>}
     {!loading && active === "explore" && <>
       <PageHeader eyebrow="OPORTUNIDADES ABERTAS" title="Desafios para provar na prática." description="Escolha um processo seletivo e mostre como você resolve problemas reais." />
-      <div className="metrics"><Metric number={data.challenges.filter((x) => x.status === "published").length} label="Desafios abertos" detail="Agora" /><Metric number={participations.length} label="Participações" detail="No total" /><Metric number={approved.length} label="Shortlists" detail="Conquistadas" /></div>
-      <div className="card-grid">{data.challenges.length ? data.challenges.map((challenge) => <ChallengeCard key={challenge._id} challenge={challenge} role="talent" onJoin={join} onSubmit={setModal} />) : <EmptyState title="Nenhum desafio publicado" text="Quando uma empresa publicar um processo seletivo, ele aparecerá aqui." />}</div>
+      <p>Exemplos fictícios: inscrições, resumos e links ficam salvos somente neste navegador.</p>
+      <div className="metrics"><Metric number={demoChallenges.filter((x) => x.status === "published").length} label="Desafios abertos" detail="Agora" /><Metric number={participations.length} label="Participações" detail="No total" /><Metric number={approved.length} label="Shortlists" detail="Conquistadas" /></div>
+      <div className="card-grid">{demoChallenges.map((challenge) => <ChallengeCard key={challenge._id} challenge={challenge} role="talent" onJoin={join} onSubmit={setModal} />)}</div>
     </>}
     {!loading && active === "participations" && <><PageHeader eyebrow="MINHA JORNADA" title="Participações" description="Acompanhe cada etapa dos desafios em que você entrou." /><div className="card-grid">{participations.length ? participations.map((challenge) => <ChallengeCard key={challenge._id} challenge={challenge} role="talent" onJoin={join} onSubmit={setModal} />) : <EmptyState title="Você ainda não participa de desafios" text="Acesse Explorar e encontre uma oportunidade." />}</div></>}
-    {!loading && active === "portfolio" && <><PageHeader eyebrow="EVIDÊNCIAS DE COMPETÊNCIA" title="Portfólio validado" description="Suas entregas e avaliações ficam reunidas aqui." /><div className="submission-list">{data.submissions.length ? data.submissions.map((item) => <article className="submission" key={item._id}><div><Status value={item.participation?.status || "submitted"} /><h3>{item.challenge?.title}</h3><p>{item.summary}</p><div className="tag-row">{(item.challenge?.skills || []).map((x) => <span key={x}>{x}</span>)}</div></div><div className="submission-side">{item.evaluation ? <><strong>{item.evaluation.score}/100</strong><small>{item.evaluation.feedback}</small></> : <small>Aguardando avaliação</small>}{item.file_name && <button className="outline-button small" onClick={() => downloadSubmission(item._id, item.file_name)}>BAIXAR ARQUIVO</button>}{item.report_url && <a className="outline-button small" href={item.report_url} target="_blank" rel="noreferrer">ABRIR LINK</a>}</div></article>) : <EmptyState title="Portfólio vazio" text="Envie uma solução para começar a construir suas evidências." />}</div></>}
+    {!loading && active === "portfolio" && <><PageHeader eyebrow="EVIDÊNCIAS DE COMPETÊNCIA" title="Portfólio validado" description="Suas entregas e avaliações ficam reunidas aqui." /><div className="submission-list">{data.submissions.length || demoSubmissions.length ? [...demoSubmissions, ...data.submissions].map((item) => <article className="submission" key={item._id}><div><Status value={item.participation?.status || "submitted"} /><h3>{item.challenge?.title}</h3><p>{item.summary}</p><div className="tag-row">{(item.challenge?.skills || []).map((x) => <span key={x}>{x}</span>)}</div></div><div className="submission-side">{item.evaluation ? <><strong>{item.evaluation.score}/100</strong><small>{item.evaluation.feedback}</small></> : <small>Aguardando avaliação</small>}{item.file_name && <button className="outline-button small" onClick={() => downloadSubmission(item._id, item.file_name)}>BAIXAR ARQUIVO</button>}{item.report_url && <a className="outline-button small" href={item.report_url} target="_blank" rel="noreferrer">ABRIR LINK</a>}</div></article>) : <EmptyState title="Portfólio vazio" text="Envie uma solução para começar a construir suas evidências." />}</div></>}
     {!loading && active === "profile" && <ProfileForm profile={data.profile} role="talent" onSaved={load} />}
-    {modal && <SubmissionModal challenge={modal} onClose={() => setModal(null)} onDone={(message) => { setToast({ message }); load(); }} />}
+    {modal && <SubmissionModal challenge={modal} onClose={() => setModal(null)} onDemoSubmit={submitDemoSolution} onDone={(message, isDemo) => { setToast({ message }); if (!isDemo) load(); }} />}
     {toast && <Toast {...toast} onClose={() => setToast(null)} />}
   </DashboardLayout>;
 }
