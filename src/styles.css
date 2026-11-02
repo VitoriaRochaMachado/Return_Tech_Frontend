@@ -165,6 +165,15 @@ input:focus, textarea:focus, select:focus { border-color: var(--lime); }
 .modal h2 { margin-bottom: 28px; }
 .modal-close { position: absolute; right: 20px; top: 15px; cursor: pointer; color: var(--muted); background: none; border: 0; font-size: 25px; }
 
+.card-actions { flex-wrap: wrap; }
+.inline-link { text-decoration: underline; text-underline-offset: 3px; }
+.challenge-back { display: inline-block; margin-bottom: 22px; padding-left: 0; }
+.challenge-detail { max-width: 960px; }
+.challenge-detail h2 { margin-top: 28px; font-size: 20px; }
+.challenge-detail .challenge-content { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.8; }
+.challenge-company { font-size: 11px; }
+.challenge-filters { margin-bottom: 18px; }
+
 @media (max-width: 1050px) {
   .metrics { grid-template-columns: repeat(2, 1fr); }
   .talent-grid { grid-template-columns: repeat(2, 1fr); }

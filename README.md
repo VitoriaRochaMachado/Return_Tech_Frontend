@@ -261,3 +261,23 @@ A pasta `node_modules` é recriada com `npm install` e não deve ser enviada ao 
 Este frontend faz parte de um MVP funcional para desenvolvimento e testes locais. O React ainda precisa ser iniciado no computador com `npm run dev`.
 
 Para disponibilizar o sistema publicamente, será necessário hospedar o frontend e configurar `VITE_API_URL` com o endereço público do backend.
+
+
+## Enunciados e administração dos CTFs
+
+- Na conta da empresa, use **Publicar desafio** para digitar o enunciado,
+  entregáveis, competências e prazo. Ao salvar o rascunho, use o link exibido
+  no formulário para abrir a página do desafio e publicá-lo.
+- Cada desafio tem uma página em `/#/desafios/<id>`, acessível pelo botão
+  **Ver desafio** e pelo link na tela de envio de soluções. O enunciado
+  preserva as quebras de linha digitadas.
+- A área do talento mostra os desafios publicados pelas empresas junto com os
+  exemplos fictícios já existentes. As participações e os envios dos exemplos
+  continuam salvos apenas no navegador; os desafios das empresas usam a API.
+- A administração do grupo fica em `/#/admin`, com conta de perfil `admin`.
+  Empresas e talentos não têm acesso ao painel. Consulte o README do backend
+  para criar as contas administrativas pelo comando `create-admin`.
+- O painel administrativo permite buscar, filtrar, editar enunciados e
+  administrar a publicação dos desafios de todas as empresas.
+
+Essas telas reutilizam os componentes, as cores e os estilos da aplicação.
