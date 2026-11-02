@@ -167,13 +167,14 @@ O banco está no MongoDB Atlas. Portanto, o frontend não utiliza Docker e não 
 
 1. Acesse a tela inicial.
 2. Escolha o perfil **Empresa**.
-3. Crie uma conta e publique um desafio.
-4. Abra uma janela anônima do navegador.
-5. Escolha **Estudante/Profissional**.
-6. Crie outra conta e participe do desafio.
-7. Envie uma solução.
-8. Volte para a conta da empresa.
-9. Avalie a entrega e adicione o participante à shortlist, se desejar.
+3. Crie uma conta, cadastre o enunciado e envie o desafio para aprovação.
+4. Entre com uma conta de administrador e aprove a publicação.
+5. Abra uma janela anônima do navegador.
+6. Escolha **Estudante/Profissional**.
+7. Crie outra conta e participe do desafio aprovado.
+8. Envie uma solução.
+9. Volte para a conta da empresa.
+10. Avalie a entrega e adicione o participante à shortlist, se desejar.
 
 A janela anônima permite manter as duas contas conectadas simultaneamente.
 
@@ -265,9 +266,10 @@ Para disponibilizar o sistema publicamente, será necessário hospedar o fronten
 
 ## Enunciados e administração dos CTFs
 
-- Na conta da empresa, use **Publicar desafio** para digitar o enunciado,
+- Na conta da empresa, use **Criar desafio** para digitar o enunciado,
   entregáveis, competências e prazo. Ao salvar o rascunho, use o link exibido
-  no formulário para abrir a página do desafio e publicá-lo.
+  no formulário para abrir a página do desafio e **Enviar para aprovação**.
+  Ele só aparece para os talentos após o administrador aprovar.
 - Cada desafio tem uma página em `/#/desafios/<id>`, acessível pelo botão
   **Ver desafio** e pelo link na tela de envio de soluções. O enunciado
   preserva as quebras de linha digitadas.
@@ -281,3 +283,17 @@ Para disponibilizar o sistema publicamente, será necessário hospedar o fronten
   administrar a publicação dos desafios de todas as empresas.
 
 Essas telas reutilizam os componentes, as cores e os estilos da aplicação.
+
+
+## Aprovação antes da publicação
+
+1. A empresa cadastra o enunciado como rascunho e clica em **Enviar para aprovação**.
+2. O desafio fica como **Aguardando aprovação**, visível somente à empresa e à administração.
+3. Em `/#/admin`, use o filtro **Aguardando aprovação** e abra **Revisar desafio**.
+4. Leia o enunciado e escolha **Aprovar e publicar** ou **Solicitar ajustes**.
+   Ao solicitar ajustes, informe o motivo; a empresa pode corrigir e reenviar.
+5. Depois da aprovação, o desafio aparece na área dos talentos.
+
+Se a empresa alterar um enunciado já publicado ou em análise, ele volta a rascunho
+e precisa ser reenviado. Salvar sem mudar os campos não retira a aprovação.
+Desafios que já estavam publicados e os exemplos fictícios continuam disponíveis.
