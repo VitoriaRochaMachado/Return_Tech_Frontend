@@ -165,8 +165,19 @@ function EmptyState({ title, text }) {
 }
 
 function Status({ value }) {
-  const labels = { draft: "Rascunho", published: "Publicado", closed: "Encerrado", joined: "Inscrito", submitted: "Entregue", shortlisted: "Shortlist", rejected: "Não selecionado" };
+  const labels = { draft: "Rascunho", pending_review: "Aguardando aprovação", changes_requested: "Ajustes solicitados", published: "Publicado", closed: "Encerrado", joined: "Inscrito", submitted: "Entregue", shortlisted: "Shortlist", rejected: "Não selecionado" };
   return <span className={`status status-${value}`}>{labels[value] || value}</span>;
+}
+
+function challengeActionMessage(action) {
+  const messages = {
+    submit_review: "Desafio enviado para aprovação. Aguarde a análise da administração.",
+    approve: "Desafio aprovado e publicado para os talentos.",
+    request_changes: "Solicitação de ajustes enviada para a empresa.",
+    close: "Desafio encerrado.",
+    draft: "Desafio retirado da publicação e salvo como rascunho.",
+  };
+  return messages[action] || "Status do desafio atualizado.";
 }
 
 function Toast({ message, kind = "success", onClose }) {
@@ -180,7 +191,7 @@ function Toast({ message, kind = "success", onClose }) {
 function DashboardLayout({ role, active, setActive, children }) {
   const { user, logout } = useAuth();
   const talentItems = [["explore", "Explorar"], ["participations", "Participações"], ["portfolio", "Portfólio"], ["profile", "Perfil"]];
-  const companyItems = [["overview", "Visão geral"], ["publish", "Publicar desafio"], ["evaluations", "Avaliações"], ["shortlist", "Shortlist"], ["profile", "Empresa"]];
+  const companyItems = [["overview", "Visão geral"], ["publish", "Criar desafio"], ["evaluations", "Avaliações"], ["shortlist", "Shortlist"], ["profile", "Empresa"]];
   const adminItems = [["challenges", "Administrar CTFs"]];
   const items = role === "admin" ? adminItems : role === "company" ? companyItems : talentItems;
   return (
@@ -211,6 +222,7 @@ function ChallengeCard({ challenge, role, onJoin, onSubmit, onAction }) {
       <h3>{challenge.title}</h3>
       {challenge.company_name && <p className="challenge-company">{challenge.company_name}</p>}
       <p>{challenge.description}</p>
+      {role === "company" && challenge.review_feedback && <div className="review-note"><strong>Ajustes solicitados pela administração</strong><p className="challenge-content">{challenge.review_feedback}</p></div>}
       <div className="tag-row">{(challenge.skills || []).map((skill) => <span key={skill}>{skill}</span>)}</div>
       <dl>
         <div><dt>Prazo</dt><dd>{challenge.deadline ? new Date(`${challenge.deadline.slice(0, 10)}T12:00:00`).toLocaleDateString("pt-BR") : "A definir"}</dd></div>
@@ -218,11 +230,11 @@ function ChallengeCard({ challenge, role, onJoin, onSubmit, onAction }) {
         <div><dt>Participantes</dt><dd>{challenge.participant_count ?? 0}</dd></div>
       </dl>
       <div className="card-actions">
-        <a className="outline-button small" href={`#${challengePath(challenge._id)}`}>VER DESAFIO →</a>
+        <a className="outline-button small" href={`#${challengePath(challenge._id)}`}>{role === "admin" && challenge.status === "pending_review" ? "REVISAR DESAFIO →" : "VER DESAFIO →"}</a>
         {role === "talent" && challenge.status === "published" && !challenge.participation && <button className="primary-button small" onClick={() => onJoin(challenge._id)}>PARTICIPAR →</button>}
         {role === "talent" && challenge.status === "published" && ["joined", "submitted"].includes(challenge.participation?.status) && <button className="primary-button small" onClick={() => onSubmit(challenge)}>ENVIAR SOLUÇÃO →</button>}
         {role === "talent" && challenge.participation && <Status value={challenge.participation.status} />}
-        {["company", "admin"].includes(role) && challenge.status === "draft" && <button className="primary-button small" onClick={() => onAction(challenge._id, "publish")}>PUBLICAR →</button>}
+        {role === "company" && ["draft", "changes_requested", "closed"].includes(challenge.status) && <button className="primary-button small" onClick={() => onAction(challenge._id, "submit_review")}>ENVIAR PARA APROVAÇÃO →</button>}
         {["company", "admin"].includes(role) && challenge.status === "published" && <button className="outline-button small" onClick={() => onAction(challenge._id, "close")}>ENCERRAR</button>}
       </div>
     </article>
@@ -338,6 +350,7 @@ function TalentDashboard({ initialActive = "explore" }) {
 }
 
 function ChallengeForm({ onCreated, challenge, onCancel }) {
+  const { user } = useAuth();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [created, setCreated] = useState(null);
@@ -374,7 +387,8 @@ function ChallengeForm({ onCreated, challenge, onCancel }) {
     }
   }
   return <form className="editor-form" onSubmit={submit}>
-    {created && <div className="form-success" role="status">Desafio salvo como rascunho. <a className="inline-link" href={`#${challengePath(created._id)}`}>Abrir a página do desafio para conferir e publicar →</a></div>}
+    {created && <div className="form-success" role="status">Desafio salvo como rascunho. <a className="inline-link" href={`#${challengePath(created._id)}`}>Abrir a página do desafio para conferir e enviar para aprovação →</a></div>}
+    {challenge && user.role === "company" && ["published", "pending_review"].includes(challenge.status) && <p className="review-note">Ao alterar o enunciado, o desafio volta a ser rascunho e precisa de uma nova aprovação antes de aparecer para os talentos.</p>}
     <div className="form-grid">
       <label className="wide">Título do desafio<input name="title" required defaultValue={challenge?.title} placeholder="Ex.: Investigação de incidente em ambiente cloud" /></label>
       <label>Nível<select name="level" defaultValue={challenge?.level || "Intermediário"}><option>Júnior</option><option>Intermediário</option><option>Sênior</option></select></label>
@@ -410,14 +424,14 @@ function CompanyDashboard({ initialActive = "overview" }) {
   const [toast, setToast] = useState(null);
   const load = useCallback(async () => { setLoading(true); try { setData(await api("/dashboard")); } catch (err) { setToast({ message: err.message, kind: "error" }); } finally { setLoading(false); } }, []);
   useEffect(() => { load(); }, [load]);
-  async function challengeAction(id, action) { try { await api(`/challenges/${id}/status`, { method: "PATCH", body: JSON.stringify({ action }) }); setToast({ message: action === "publish" ? "Desafio publicado." : "Desafio encerrado." }); await load(); } catch (err) { setToast({ message: err.message, kind: "error" }); } }
+  async function challengeAction(id, action) { try { await api(`/challenges/${id}/status`, { method: "PATCH", body: JSON.stringify({ action }) }); setToast({ message: challengeActionMessage(action) }); await load(); } catch (err) { setToast({ message: err.message, kind: "error" }); } }
   const pending = data.submissions.filter((x) => !x.evaluation);
   const shortlisted = data.submissions.filter((x) => x.evaluation?.decision === "shortlisted");
   const totalParticipants = data.challenges.reduce((sum, x) => sum + (x.participant_count || 0), 0);
   return <DashboardLayout role="company" active={active} setActive={setActive}>
     {loading && <div className="loader">CARREGANDO DADOS<span>_</span></div>}
-    {!loading && active === "overview" && <><PageHeader eyebrow="PAINEL DA EMPRESA" title={`Olá, ${data.profile.organization_name || data.profile.name}.`} description="Acompanhe seus processos seletivos em cibersegurança." action={<button className="primary-button small" onClick={() => setActive("publish")}>+ NOVO DESAFIO</button>} /><div className="metrics"><Metric number={data.challenges.filter((x) => x.status === "published").length} label="Processos ativos" detail="Publicados" /><Metric number={totalParticipants} label="Participantes" detail="Em desafios" /><Metric number={pending.length} label="Para avaliar" detail="Entregas pendentes" /><Metric number={shortlisted.length} label="Shortlist" detail="Talentos" /></div><h2 className="section-title">Seus desafios</h2><div className="card-grid">{data.challenges.length ? data.challenges.map((challenge) => <ChallengeCard key={challenge._id} challenge={challenge} role="company" onAction={challengeAction} />) : <EmptyState title="Nenhum desafio criado" text="Publique seu primeiro processo seletivo técnico." />}</div></>}
-    {!loading && active === "publish" && <><PageHeader eyebrow="NOVO PROCESSO SELETIVO" title="Crie um desafio técnico." description="Apresente um cenário real e defina as evidências que deseja receber." /><ChallengeForm onCreated={(challenge) => { setToast({ message: "Rascunho criado. Abra a página do desafio para publicá-lo." }); setData((current) => ({ ...current, challenges: [challenge, ...current.challenges] })); }} /></>}
+    {!loading && active === "overview" && <><PageHeader eyebrow="PAINEL DA EMPRESA" title={`Olá, ${data.profile.organization_name || data.profile.name}.`} description="Acompanhe seus processos seletivos em cibersegurança." action={<button className="primary-button small" onClick={() => setActive("publish")}>+ NOVO DESAFIO</button>} /><div className="metrics"><Metric number={data.challenges.filter((x) => x.status === "published").length} label="Processos ativos" detail="Publicados" /><Metric number={totalParticipants} label="Participantes" detail="Em desafios" /><Metric number={pending.length} label="Para avaliar" detail="Entregas pendentes" /><Metric number={shortlisted.length} label="Shortlist" detail="Talentos" /></div><h2 className="section-title">Seus desafios</h2><div className="card-grid">{data.challenges.length ? data.challenges.map((challenge) => <ChallengeCard key={challenge._id} challenge={challenge} role="company" onAction={challengeAction} />) : <EmptyState title="Nenhum desafio criado" text="Cadastre seu primeiro desafio e envie para aprovação da administração." />}</div></>}
+    {!loading && active === "publish" && <><PageHeader eyebrow="NOVO PROCESSO SELETIVO" title="Crie um desafio técnico." description="Cadastre o enunciado e envie para aprovação. O desafio aparece para os talentos após a análise da administração." /><ChallengeForm onCreated={(challenge) => { setToast({ message: "Rascunho criado. Abra o desafio para enviar à aprovação da administração." }); setData((current) => ({ ...current, challenges: [challenge, ...current.challenges] })); }} /></>}
     {!loading && active === "evaluations" && <><PageHeader eyebrow="ANÁLISE TÉCNICA" title="Avalie as entregas." description="Dê uma nota, deixe feedback e escolha quem avança." /><div className="evaluation-list">{data.submissions.length ? data.submissions.map((item) => <EvaluationCard key={item._id} submission={item} onEvaluated={() => { setToast({ message: "Avaliação salva." }); load(); }} />) : <EmptyState title="Nenhuma entrega recebida" text="As soluções enviadas pelos participantes aparecerão aqui." />}</div></>}
     {!loading && active === "shortlist" && <><PageHeader eyebrow="TALENTOS SELECIONADOS" title="Sua shortlist." description="Perfis que se destacaram nos desafios técnicos." /><div className="talent-grid">{shortlisted.length ? shortlisted.map((item) => <article className="talent-card" key={item._id}><div className="avatar large">{item.talent?.name?.slice(0, 2).toUpperCase()}</div><h3>{item.talent?.name}</h3><p>{item.talent?.headline}</p><div className="score">{item.evaluation.score}<small>/100</small></div><strong>{item.challenge?.title}</strong><div className="tag-row">{(item.talent?.skills || []).map((skill) => <span key={skill}>{skill}</span>)}</div><a href={`mailto:${item.talent?.email}`} className="primary-button small">ENTRAR EM CONTATO →</a></article>) : <EmptyState title="Shortlist vazia" text="Avalie uma entrega como aprovada para adicionar o talento." />}</div></>}
     {!loading && active === "profile" && <ProfileForm profile={data.profile} role="company" onSaved={load} />}
@@ -432,6 +446,7 @@ function ChallengeDetail({ challengeId }) {
   const [editing, setEditing] = useState(false);
   const [modal, setModal] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const storageKey = demoStorageKey(user);
@@ -470,12 +485,13 @@ function ChallengeDetail({ challengeId }) {
     } catch (err) { setError(err.message); }
     finally { setBusy(false); }
   }
-  async function changeStatus(action) {
+  async function changeStatus(action, extra = {}) {
     setBusy(true);
     setError("");
     try {
-      await api(`/challenges/${challengeId}/status`, { method: "PATCH", body: JSON.stringify({ action }) });
-      setMessage(action === "publish" ? "Desafio publicado e disponível para os talentos." : action === "close" ? "Desafio encerrado." : "Desafio retirado da publicação e salvo como rascunho.");
+      await api(`/challenges/${challengeId}/status`, { method: "PATCH", body: JSON.stringify({ action, review_revision: challenge.revision ?? 0, ...extra }) });
+      setReviewOpen(false);
+      setMessage(challengeActionMessage(action));
       await load();
     } catch (err) { setError(err.message); }
     finally { setBusy(false); }
@@ -501,8 +517,10 @@ function ChallengeDetail({ challengeId }) {
     {message && <div className="form-success" role="status">{message}</div>}
     {!loading && challenge && <>
       <PageHeader eyebrow={isDemo ? "DESAFIO DEMONSTRATIVO" : "DESAFIO / CTF"} title={editing ? "Editar enunciado" : challenge.title} description={challenge.company_name} />
-      {editing ? <ChallengeForm challenge={challenge} onCancel={() => setEditing(false)} onCreated={(saved) => { setChallenge(saved); setEditing(false); setMessage("Enunciado atualizado."); }} /> : <article className="challenge-card challenge-detail">
+      {editing ? <ChallengeForm challenge={challenge} onCancel={() => setEditing(false)} onCreated={(saved) => { setChallenge(saved); setEditing(false); setMessage(user.role === "company" && saved.status === "draft" ? "Enunciado salvo como rascunho. Envie o desafio para aprovação antes de publicar." : "Enunciado atualizado."); }} /> : <article className="challenge-card challenge-detail">
         <div className="challenge-top"><Status value={challenge.status} /><span>{challenge.level}</span></div>
+        {canManage && challenge.status === "pending_review" && <p className="review-note">{user.role === "admin" ? "Revise o enunciado e os entregáveis antes de aprovar a publicação ou solicitar ajustes." : "Seu desafio está aguardando a aprovação da administração. Ele ainda não aparece para os talentos."}</p>}
+        {canManage && challenge.review_feedback && <div className="review-note"><strong>Ajustes solicitados pela administração</strong><p className="challenge-content">{challenge.review_feedback}</p></div>}
         <dl><div><dt>Prazo</dt><dd>{challenge.deadline ? new Date(`${challenge.deadline.slice(0, 10)}T12:00:00`).toLocaleDateString("pt-BR") : "A definir"}</dd></div><div><dt>Formato</dt><dd>{challenge.work_mode || "Remoto"}</dd></div><div><dt>Participantes</dt><dd>{challenge.participant_count ?? 0}</dd></div></dl>
         <h2>Enunciado do desafio</h2><p className="challenge-content">{challenge.description}</p>
         <h2>Entregáveis</h2><p className="challenge-content">{challenge.deliverables || "Apresente sua análise, as evidências e as recomendações para o cenário descrito."}</p>
@@ -515,11 +533,19 @@ function ChallengeDetail({ challengeId }) {
           {user.role === "talent" && challenge.participation && <Status value={challenge.participation.status} />}
           {canManage && <>
             <button className="outline-button" disabled={busy} onClick={() => setEditing(true)}>EDITAR ENUNCIADO</button>
-            {challenge.status !== "published" && <button className="primary-button" disabled={busy} onClick={() => changeStatus("publish")}>{challenge.status === "closed" ? "REABRIR DESAFIO →" : "PUBLICAR DESAFIO →"}</button>}
+            {user.role === "company" && ["draft", "changes_requested", "closed"].includes(challenge.status) && <button className="primary-button" disabled={busy} onClick={() => changeStatus("submit_review")}>ENVIAR PARA APROVAÇÃO →</button>}
+            {user.role === "admin" && challenge.status === "pending_review" && <>
+              <button className="primary-button" disabled={busy} onClick={() => changeStatus("approve")}>APROVAR E PUBLICAR →</button>
+              <button className="outline-button" disabled={busy} onClick={() => setReviewOpen(!reviewOpen)}>SOLICITAR AJUSTES</button>
+            </>}
             {challenge.status === "published" && <button className="outline-button" disabled={busy} onClick={() => changeStatus("close")}>ENCERRAR DESAFIO</button>}
-            {user.role === "admin" && challenge.status !== "draft" && <button className="outline-button" disabled={busy} onClick={() => changeStatus("draft")}>VOLTAR A RASCUNHO</button>}
+            {user.role === "admin" && !["draft", "pending_review"].includes(challenge.status) && <button className="outline-button" disabled={busy} onClick={() => changeStatus("draft")}>VOLTAR A RASCUNHO</button>}
           </>}
         </div>
+        {user.role === "admin" && challenge.status === "pending_review" && reviewOpen && <form className="review-form" onSubmit={(event) => { event.preventDefault(); const feedback = new FormData(event.currentTarget).get("feedback"); changeStatus("request_changes", { feedback }); }}>
+          <label>Ajustes necessários<textarea name="feedback" required maxLength={2000} rows="4" placeholder="Explique para a empresa o que precisa ser corrigido..." /></label>
+          <button className="primary-button small" disabled={busy}>ENVIAR SOLICITAÇÃO DE AJUSTES</button>
+        </form>}
       </article>}
     </>}
     {modal && challenge && <SubmissionModal challenge={challenge} onClose={() => setModal(false)} onDemoSubmit={submitDemo} onDone={(text) => { setMessage(text); load(); }} />}
@@ -544,20 +570,20 @@ function AdminDashboard() {
   async function challengeAction(id, action) {
     try {
       await api(`/challenges/${id}/status`, { method: "PATCH", body: JSON.stringify({ action }) });
-      setToast({ message: action === "publish" ? "Desafio publicado." : "Desafio encerrado." });
+      setToast({ message: challengeActionMessage(action) });
       await load();
     } catch (err) { setToast({ message: err.message, kind: "error" }); }
   }
   const filtered = challenges.filter((item) => (!status || item.status === status) && `${item.title} ${item.company_name}`.toLocaleLowerCase("pt-BR").includes(query.trim().toLocaleLowerCase("pt-BR")));
   return <DashboardLayout role="admin" active="challenges" setActive={() => {}}>
-    <PageHeader eyebrow="ADMINISTRAÇÃO RETURN TECH" title="Administração de CTFs" description="Gerencie os desafios cadastrados pelas empresas. Abra um desafio para editar o enunciado ou alterar sua publicação." />
+    <PageHeader eyebrow="ADMINISTRAÇÃO RETURN TECH" title="Administração de CTFs" description="Revise os desafios enviados pelas empresas. Apenas os aprovados ficam disponíveis para os talentos." />
     {error && <div className="form-error" role="alert">{error} <button className="text-button" onClick={load}>TENTAR NOVAMENTE</button></div>}
     {loading ? <div className="loader">CARREGANDO CTFS<span>_</span></div> : <>
-      <div className="metrics"><Metric number={challenges.length} label="Total de desafios" detail="Todas as empresas" /><Metric number={challenges.filter((item) => item.status === "published").length} label="Publicados" detail="Disponíveis para talentos" /><Metric number={challenges.filter((item) => item.status === "draft").length} label="Rascunhos" detail="Em preparação" /><Metric number={challenges.filter((item) => item.status === "closed").length} label="Encerrados" detail="Sem novas entregas" /></div>
+      <div className="metrics"><Metric number={challenges.length} label="Total de desafios" detail="Todas as empresas" /><Metric number={challenges.filter((item) => item.status === "published").length} label="Publicados" detail="Disponíveis para talentos" /><Metric number={challenges.filter((item) => item.status === "pending_review").length} label="Aguardando aprovação" detail="Revisão da administração" /><Metric number={challenges.filter((item) => item.status === "closed").length} label="Encerrados" detail="Sem novas entregas" /></div>
       <div className="form-grid challenge-filters">
         <label>Buscar desafio ou empresa<input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Digite o título ou a empresa..." /></label>
         <label>Status<select value={status} onChange={(event) => setStatus(event.target.value)}>
-          <option value="">Todos</option><option value="draft">Rascunhos</option><option value="published">Publicados</option><option value="closed">Encerrados</option>
+          <option value="">Todos</option><option value="pending_review">Aguardando aprovação</option><option value="changes_requested">Ajustes solicitados</option><option value="draft">Rascunhos</option><option value="published">Publicados</option><option value="closed">Encerrados</option>
         </select></label>
       </div>
       <div className="card-grid">{filtered.length ? filtered.map((challenge) => <ChallengeCard key={challenge._id} challenge={challenge} role="admin" onAction={challengeAction} />) : <EmptyState title="Nenhum desafio encontrado" text={challenges.length ? "Ajuste os filtros para encontrar o desafio." : "Os desafios cadastrados pelas empresas aparecerão aqui."} />}</div>
