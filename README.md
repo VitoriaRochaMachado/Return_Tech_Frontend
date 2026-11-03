@@ -24,7 +24,7 @@ A aplicação possui dois fluxos principais:
 
 Antes de começar, instale:
 
-- Node.js 22 ou superior;
+- Node.js 24 LTS (24.15 ou superior nessa linha);
 - Visual Studio Code ou outro editor de código;
 - Git, caso o projeto seja obtido pelo GitHub.
 
@@ -297,3 +297,72 @@ Essas telas reutilizam os componentes, as cores e os estilos da aplicação.
 Se a empresa alterar um enunciado já publicado ou em análise, ele volta a rascunho
 e precisa ser reenviado. Salvar sem mudar os campos não retira a aprovação.
 Desafios que já estavam publicados e os exemplos fictícios continuam disponíveis.
+
+## Avaliação automática de código com Judge0
+
+Os desafios reais podem receber uma avaliação por código, com linguagens, um
+exemplo público e casos privados cadastrados pela empresa. Esse fluxo utiliza
+**React → API Flask → Judge0**. O frontend continua acessando somente a API Flask;
+as credenciais do executor ficam no `.env` do backend.
+
+### Iniciar o ambiente local
+
+Depois de preparar a VM Ubuntu descrita no README do backend, mantenha o Judge0
+ligado. No computador Windows:
+
+```powershell
+multipass start returntech-judge0
+multipass exec returntech-judge0 -- sudo docker compose -f /home/ubuntu/judge0-v1.13.1/docker-compose.yml up -d
+```
+
+O endereço `http://127.0.0.1:2358` precisa encaminhar para o IP atual dessa VM.
+Inicie o encaminhamento local disponibilizado para o projeto e mantenha seu
+terminal aberto. Consulte o README do backend para configurar o token e o acesso
+ao Judge0; nenhum token deve ser colocado em uma variável `VITE_*`.
+
+Mantenha três processos do projeto em execução:
+
+| Pasta | Comando no Windows |
+| --- | --- |
+| `Return_Tech_Backend` | `.\.venv\Scripts\python.exe run.py` |
+| `Return_Tech_Backend` | `.\.venv\Scripts\python.exe -m flask --app run process-code-jobs --watch` |
+| `Return_Tech_Frontend` | `npm run dev` |
+
+O processo da fila acompanha as correções mesmo quando o candidato fecha o editor.
+Para a instalação inicial ou após mudanças no arquivo de dependências, execute
+`npm ci` no frontend.
+
+### Empresa e administração
+
+1. Crie um desafio real e salve-o como rascunho.
+2. Abra **Configurar código**, disponível para a empresa responsável enquanto o
+   rascunho ainda não recebeu tentativas. Cadastre as linguagens, o exemplo e os
+   casos privados no formulário JSON.
+3. Salve a avaliação e use o fluxo existente **Enviar para aprovação**.
+4. A administração pode consultar a avaliação por código ao revisar o desafio,
+   sem editar os casos privados. A publicação continua dependendo de
+   **Aprovar e publicar**.
+
+### Estudantes e profissionais
+
+Após a inscrição em um desafio de código publicado, use **Abrir editor**. Escolha
+a linguagem, escreva o programa e clique em **Enviar solução**. O exemplo é somente
+leitura; as entradas e saídas dos casos privados não são mostradas ao candidato.
+
+A pontuação é proporcional ao número de casos corretos. Um reenvio com nota menor
+não reduz a melhor pontuação. O editor preserva o rascunho na sessão do navegador,
+separado por usuário, desafio e linguagem, e permite acompanhar correções em
+andamento ou consultar resultados após o encerramento.
+
+Os desafios sem avaliação por código e os exemplos fictícios mantêm o envio
+original de resumo, link e, quando aplicável, arquivo.
+
+### Verificação de desenvolvimento
+
+Os testes do frontend utilizam respostas simuladas da API e não fazem envios ao
+Judge0 nem ao banco da equipe:
+
+```powershell
+npm test
+npm run build
+```

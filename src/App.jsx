@@ -1,18 +1,35 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, downloadSubmission } from "./api";
 import { useAuth } from "./AuthContext";
+import CodingWorkspace from "./coding/CodingWorkspace";
+import CodingSettings from "./coding/CodingSettings";
+import CodingChallengeFields, { createCodingChallengeConfig } from "./coding/CodingChallengeFields";
+import { formatPoints } from "./coding/points";
 import {
   demoStorageKey,
   getDemoChallenges,
-  getDemoSubmissions,
   isDemoChallenge,
   loadDemoState,
-  saveDemoState,
 } from "./demoChallenges";
 
 const icons = {
-  student: "⌁",
-  company: "◇",
+  student: (
+    <svg viewBox="0 0 48 48" fill="currentColor" aria-hidden="true" focusable="false">
+      <path d="M24 3 3 11l21 8 21-8L24 3Z" />
+      <path d="M42 12v14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+      <rect x="40" y="25" width="4" height="6" rx="1" />
+      <circle cx="24" cy="25" r="7" />
+      <path d="m14 33-10 6v7h40v-7l-10-6-10 7-10-7Z" />
+    </svg>
+  ),
+  company: (
+    <svg viewBox="0 0 48 48" fill="currentColor" aria-hidden="true" focusable="false">
+      <path d="M18 8h12a4 4 0 0 1 4 4v4h-4v-4H18v4h-4v-4a4 4 0 0 1 4-4Z" />
+      <path d="M7 17h34a3 3 0 0 1 3 3v8H28v-3h-8v3H4v-8a3 3 0 0 1 3-3Z" />
+      <path d="M4 31h16v4h8v-4h16v10a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3V31Z" />
+      <rect x="22" y="27" width="4" height="6" rx="1" />
+    </svg>
+  ),
   shield: "⬡",
   arrow: "→",
   check: "✓",
@@ -44,6 +61,35 @@ function challengePath(id) {
   return `/desafios/${encodeURIComponent(id)}`;
 }
 
+async function syncLegacyParticipations(user) {
+  if (user?.role !== "talent") return;
+  const state = loadDemoState(demoStorageKey(user));
+  const snapshot = JSON.stringify(state);
+  const identity = user._id || user.id || user.email;
+  const markerKey = `return_tech_legacy_imported:${identity}`;
+  if (localStorage.getItem(markerKey) === snapshot) return;
+  const items = getDemoChallenges({}).flatMap((challenge) => {
+    const saved = state[challenge._id];
+    if (!saved?.participation && !saved?.submission) return [];
+    return [{ legacy_id: challenge._id, summary: saved.submission?.summary || "", report_url: saved.submission?.report_url || "" }];
+  });
+  if (!items.length) return;
+  await api("/legacy-participations/import", { method: "POST", body: JSON.stringify({ items }) });
+  localStorage.setItem(markerKey, snapshot);
+}
+
+function canSubmitReport(challenge) {
+  if (!challenge || challenge.coding_enabled || challenge.status !== "published" || !challenge.participation) return false;
+  const endsAt = challenge.ends_at || (challenge.deadline ? `${challenge.deadline.slice(0, 10)}T23:59:59.999-03:00` : null);
+  return !endsAt || new Date(endsAt).getTime() > Date.now();
+}
+
+function canConfigureCoding(challenge, user) {
+  return user?.role === "company" && challenge?.owner_id === user._id &&
+    challenge.status === "draft" && challenge.coding_editable === true &&
+    !isDemoChallenge(challenge._id);
+}
+
 function Brand({ compact = false }) {
   return (
     <button className="brand" onClick={() => go("/")} aria-label="Ir para o início">
@@ -53,23 +99,23 @@ function Brand({ compact = false }) {
   );
 }
 
-function Landing() {
+function Landing({ register = false }) {
   return (
     <main className="landing">
       <header className="public-header">
         <Brand />
-        <button className="text-button" onClick={() => go("/login")}>Já tenho uma conta <span>→</span></button>
+        {register && <button className="text-button" onClick={() => go("/login")}>Já tenho uma conta <span>→</span></button>}
       </header>
 
       <section className="hero">
         <div className="eyebrow"><span className="pulse" /> ECOSSISTEMA DE CIBERSEGURANÇA</div>
         <h1>Onde desafios reais<br />revelam <span>talentos reais.</span></h1>
         <p>Conectamos estudantes e profissionais a empresas por meio de processos seletivos práticos em cibersegurança.</p>
-        <div className="terminal-line"><span>&gt;</span> escolha como entrar na plataforma<span className="cursor">_</span></div>
+        <div className="terminal-line"><span>&gt;</span> {register ? "escolha seu perfil para criar uma conta" : "escolha como entrar na plataforma"}<span className="cursor">_</span></div>
       </section>
 
       <section className="choice-grid" aria-label="Escolha o seu perfil">
-        <button className="choice-card talent" onClick={() => go("/cadastro/talent")}>
+        <button className="choice-card talent" onClick={() => go(register ? "/cadastro/talent" : "/login/talent")}>
           <span className="card-number">01</span>
           <span className="choice-icon">{icons.student}</span>
           <span className="choice-copy">
@@ -78,7 +124,7 @@ function Landing() {
           </span>
           <span className="choice-link">QUERO PARTICIPAR {icons.arrow}</span>
         </button>
-        <button className="choice-card company" onClick={() => go("/cadastro/company")}>
+        <button className="choice-card company" onClick={() => go(register ? "/cadastro/company" : "/login/company")}>
           <span className="card-number">02</span>
           <span className="choice-icon">{icons.company}</span>
           <span className="choice-copy">
@@ -97,6 +143,8 @@ function Landing() {
 function AuthPage({ mode, role, returnTo }) {
   const { authenticate } = useAuth();
   const isLogin = mode === "login";
+  const registerPath = role ? `/cadastro/${role}` : "/cadastro";
+  const loginPath = role ? `/login/${role}` : "/login";
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [talentType, setTalentType] = useState("student");
@@ -153,7 +201,7 @@ function AuthPage({ mode, role, returnTo }) {
           </>}
           {error && <div className="form-error">{error}</div>}
           <button className="primary-button" disabled={loading}>{loading ? "PROCESSANDO..." : isLogin ? "ENTRAR NA PLATAFORMA" : "CRIAR MINHA CONTA"} <span>→</span></button>
-          {role !== "admin" && <p className="auth-switch">{isLogin ? "Ainda não tem conta?" : "Já tem uma conta?"} <button type="button" onClick={() => go(isLogin ? "/" : "/login")}>{isLogin ? "Escolher perfil" : "Fazer login"}</button></p>}
+          {role !== "admin" && <p className="auth-switch">{isLogin ? "Ainda não tem conta?" : "Já tem uma conta?"} <button type="button" onClick={() => go(isLogin ? registerPath : loginPath)}>{isLogin ? "Criar conta" : "Fazer login"}</button></p>}
         </form>
       </section>
     </main>
@@ -185,7 +233,7 @@ function Toast({ message, kind = "success", onClose }) {
     const timer = setTimeout(onClose, 3800);
     return () => clearTimeout(timer);
   }, [onClose]);
-  return <div className={`toast ${kind}`}>{message}<button onClick={onClose}>×</button></div>;
+  return <div className={`toast ${kind}`} role={kind === "error" ? "alert" : "status"} aria-label={kind === "error" ? "Erro na operação" : "Operação concluída"}>{message}<button aria-label="Fechar aviso" onClick={onClose}>×</button></div>;
 }
 
 function DashboardLayout({ role, active, setActive, children }) {
@@ -215,7 +263,7 @@ function Metric({ number, label, detail }) {
   return <article className="metric"><span>{label}</span><strong>{number}</strong><small>{detail}</small></article>;
 }
 
-function ChallengeCard({ challenge, role, onJoin, onSubmit, onAction }) {
+function ChallengeCard({ challenge, role, onJoin, onSubmit, onAction, onConfigureCoding }) {
   return (
     <article className="challenge-card">
       <div className="challenge-top"><Status value={challenge.status} /><span>{challenge.level || "Intermediário"}</span></div>
@@ -224,6 +272,7 @@ function ChallengeCard({ challenge, role, onJoin, onSubmit, onAction }) {
       <p>{challenge.description}</p>
       {role === "company" && challenge.review_feedback && <div className="review-note"><strong>Ajustes solicitados pela administração</strong><p className="challenge-content">{challenge.review_feedback}</p></div>}
       <div className="tag-row">{(challenge.skills || []).map((skill) => <span key={skill}>{skill}</span>)}</div>
+      {challenge.coding_enabled && <p className="code-tag">Avaliação por código · {formatPoints(challenge.coding_max_points ?? 100)} pontos</p>}
       <dl>
         <div><dt>Prazo</dt><dd>{challenge.deadline ? new Date(`${challenge.deadline.slice(0, 10)}T12:00:00`).toLocaleDateString("pt-BR") : "A definir"}</dd></div>
         <div><dt>Formato</dt><dd>{challenge.work_mode || "Remoto"}</dd></div>
@@ -232,8 +281,10 @@ function ChallengeCard({ challenge, role, onJoin, onSubmit, onAction }) {
       <div className="card-actions">
         <a className="outline-button small" href={`#${challengePath(challenge._id)}`}>{role === "admin" && challenge.status === "pending_review" ? "REVISAR DESAFIO →" : "VER DESAFIO →"}</a>
         {role === "talent" && challenge.status === "published" && !challenge.participation && <button className="primary-button small" onClick={() => onJoin(challenge._id)}>PARTICIPAR →</button>}
-        {role === "talent" && challenge.status === "published" && ["joined", "submitted"].includes(challenge.participation?.status) && <button className="primary-button small" onClick={() => onSubmit(challenge)}>ENVIAR SOLUÇÃO →</button>}
+        {role === "talent" && challenge.coding_enabled && challenge.participation && ["published", "closed"].includes(challenge.status) && <button className="primary-button small" onClick={() => onSubmit(challenge)}>{challenge.status === "closed" ? "CONSULTAR CÓDIGO E RESULTADOS →" : "ABRIR EDITOR →"}</button>}
+        {role === "talent" && canSubmitReport(challenge) && <button className="primary-button small" onClick={() => onSubmit(challenge)}>{challenge.latest_submission ? "EDITAR ENTREGA →" : "ENVIAR SOLUÇÃO →"}</button>}
         {role === "talent" && challenge.participation && <Status value={challenge.participation.status} />}
+        {role === "company" && onConfigureCoding && <button className="outline-button small" onClick={() => onConfigureCoding(challenge)}>CONFIGURAR CÓDIGO</button>}
         {role === "company" && ["draft", "changes_requested", "closed"].includes(challenge.status) && <button className="primary-button small" onClick={() => onAction(challenge._id, "submit_review")}>ENVIAR PARA APROVAÇÃO →</button>}
         {["company", "admin"].includes(role) && challenge.status === "published" && <button className="outline-button small" onClick={() => onAction(challenge._id, "close")}>ENCERRAR</button>}
       </div>
@@ -241,7 +292,7 @@ function ChallengeCard({ challenge, role, onJoin, onSubmit, onAction }) {
   );
 }
 
-function SubmissionModal({ challenge, onClose, onDone, onDemoSubmit }) {
+function SubmissionModal({ challenge, submission = challenge.latest_submission, onClose, onDone }) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   async function submit(event) {
@@ -249,12 +300,11 @@ function SubmissionModal({ challenge, onClose, onDone, onDemoSubmit }) {
     setLoading(true);
     setError("");
     try {
-      if (isDemoChallenge(challenge._id)) {
-        await onDemoSubmit(challenge, new FormData(event.currentTarget));
-      } else {
-        await api(`/challenges/${challenge._id}/submissions`, { method: "POST", body: new FormData(event.currentTarget) });
-      }
-      onDone("Solução enviada com sucesso.", isDemoChallenge(challenge._id));
+      if (!canSubmitReport(challenge)) throw new Error("Este desafio não está recebendo novas soluções ou alterações.");
+      const formData = new FormData(event.currentTarget);
+      if (submission?._id) formData.set("previous_submission_id", submission._id);
+      await api(`/challenges/${challenge._id}/submissions`, { method: "POST", body: formData });
+      onDone(submission ? "Entrega atualizada com sucesso." : "Solução enviada com sucesso.");
       onClose();
     } catch (err) {
       setError(err.message);
@@ -262,7 +312,39 @@ function SubmissionModal({ challenge, onClose, onDone, onDemoSubmit }) {
       setLoading(false);
     }
   }
-  return <div className="modal-backdrop" onMouseDown={onClose}><div className="modal" onMouseDown={(e) => e.stopPropagation()}><button className="modal-close" onClick={onClose}>×</button><div className="eyebrow">NOVA ENTREGA</div><h2>{challenge.title}</h2><p><a className="inline-link" href={`#${challengePath(challenge._id)}`} onClick={onClose}>Ver o enunciado completo do desafio →</a></p>{isDemoChallenge(challenge._id) && <p>Desafio demonstrativo: resumo e link ficam salvos somente neste navegador.</p>}<form onSubmit={submit}><label>Resumo da solução<textarea name="summary" required rows="5" placeholder="Explique sua abordagem, decisões e resultados..." /></label><label>Link complementar<input type="url" name="report_url" placeholder="https://github.com/..." /></label>{!isDemoChallenge(challenge._id) && <label>Arquivo do relatório<input type="file" name="file" /></label>}{error && <div className="form-error">{error}</div>}<button className="primary-button" disabled={loading}>{loading ? "ENVIANDO..." : "ENVIAR SOLUÇÃO →"}</button></form></div></div>;
+  return <div className="modal-backdrop" onMouseDown={onClose}><div className="modal" onMouseDown={(e) => e.stopPropagation()}><button className="modal-close" onClick={onClose}>×</button><div className="eyebrow">{submission ? "EDITAR ENTREGA" : "NOVA ENTREGA"}</div><h2>{challenge.title}</h2><p><a className="inline-link" href={`#${challengePath(challenge._id)}`} onClick={onClose}>Ver o enunciado completo do desafio →</a></p><form onSubmit={submit}><label>Resumo da solução<textarea name="summary" required rows="5" defaultValue={submission?.summary || ""} placeholder="Explique sua abordagem, decisões e resultados..." /></label><label>Link complementar<input type="url" name="report_url" defaultValue={submission?.report_url || ""} placeholder="https://github.com/..." /></label><label>Arquivo do relatório<input type="file" name="file" /></label>{submission?.file_name && <p>Arquivo atual: <strong>{submission.file_name}</strong>. Se não selecionar outro arquivo, ele será mantido.</p>}{error && <div className="form-error">{error}</div>}<button className="primary-button" disabled={loading || !canSubmitReport(challenge)}>{loading ? "SALVANDO..." : submission ? "SALVAR ALTERAÇÕES →" : "ENVIAR SOLUÇÃO →"}</button></form></div></div>;
+}
+
+function PortfolioSubmission({ item, isLatestReport }) {
+  const isCode = item.kind === "code";
+  const [downloadError, setDownloadError] = useState("");
+  async function download() {
+    setDownloadError("");
+    try { await downloadSubmission(item._id, item.file_name); }
+    catch (err) { setDownloadError(err.message); }
+  }
+  return <article className="submission">
+    <div>
+      <Status value={isCode ? "submitted" : item.participation?.status || "submitted"} />
+      <h3>{item.challenge?.title || "Desafio indisponível"}</h3>
+      {isCode ? <>
+        <p>Resposta em {({ python: "Python", javascript: "JavaScript", cpp: "C++" })[item.language] || item.language}.</p>
+        <details><summary>VER CÓDIGO ENVIADO</summary><pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{item.source_code}</pre></details>
+      </> : <p className="challenge-content">{item.summary}</p>}
+      <div className="tag-row">{(item.challenge?.skills || []).map((skill) => <span key={skill}>{skill}</span>)}</div>
+    </div>
+    <div className="submission-side">
+      {isCode ? item.status === "completed" ? <><strong>{formatPoints(item.score ?? 0)} / {formatPoints(item.max_points ?? 100)}</strong><small>pontos</small></>
+        : item.status === "service_error" ? <small>{item.error || "Não foi possível corrigir esta resposta. O código enviado continua disponível."}</small>
+        : <small>Corrigindo sua solução...</small>
+        : item.evaluation ? <><strong>{item.evaluation.score}/100</strong><small>{item.evaluation.feedback}</small></> : <small>Aguardando avaliação</small>}
+      {item.challenge?._id && <a className="outline-button small" href={`#${challengePath(item.challenge._id)}`}>VER DESAFIO →</a>}
+      {!isCode && isLatestReport && canSubmitReport({ ...item.challenge, participation: item.participation }) && <a className="primary-button small" href={`#${challengePath(item.challenge._id)}`}>EDITAR ENTREGA →</a>}
+      {item.file_name && <button className="outline-button small" onClick={download}>BAIXAR ARQUIVO</button>}
+      {downloadError && <p className="form-error" role="alert">{downloadError}</p>}
+      {item.report_url && <a className="outline-button small" href={item.report_url} target="_blank" rel="noreferrer">ABRIR LINK</a>}
+    </div>
+  </article>;
 }
 
 function TalentDashboard({ initialActive = "explore" }) {
@@ -270,90 +352,74 @@ function TalentDashboard({ initialActive = "explore" }) {
   const [active, setActive] = useState(initialActive);
   useEffect(() => { setActive(initialActive); }, [initialActive]);
   const [data, setData] = useState({ challenges: [], submissions: [], profile: {} });
-  const [demoState, setDemoState] = useState({});
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null);
   const [toast, setToast] = useState(null);
-  const storageKey = demoStorageKey(user);
-
-  useEffect(() => {
-    try {
-      setDemoState(loadDemoState(storageKey));
-    } catch (err) {
-      setToast({ message: err.message, kind: "error" });
-    }
-  }, [storageKey]);
-
   const load = useCallback(async () => {
     setLoading(true);
+    try { await syncLegacyParticipations(user); }
+    catch (err) { setToast({ message: err.message, kind: "error" }); }
     try { setData(await api("/dashboard")); }
     catch (err) { setToast({ message: err.message, kind: "error" }); }
     finally { setLoading(false); }
-  }, []);
-  useEffect(() => { load(); }, [load]);
+  }, [user._id]);
+  useEffect(() => { load(); }, [load, active]);
 
   async function join(id) {
-    if (isDemoChallenge(id)) {
-      try {
-        const nextState = { ...demoState, [id]: { ...demoState[id], participation: { status: "joined" } } };
-        saveDemoState(storageKey, nextState);
-        setDemoState(nextState);
-        setToast({ message: "Inscrição demonstrativa confirmada neste navegador." });
-      } catch (err) {
-        setToast({ message: err.message, kind: "error" });
-      }
-      return;
-    }
     try { await api(`/challenges/${id}/join`, { method: "POST" }); setToast({ message: "Inscrição confirmada!" }); await load(); }
     catch (err) { setToast({ message: err.message, kind: "error" }); }
   }
 
-  const demoChallenges = useMemo(() => getDemoChallenges(demoState), [demoState]);
-  const demoSubmissions = useMemo(() => getDemoSubmissions(demoState), [demoState]);
-  const allChallenges = useMemo(() => [...data.challenges, ...demoChallenges], [data.challenges, demoChallenges]);
+  const portfolioSubmissions = useMemo(() => [...data.submissions, ...(data.coding_submissions || [])], [data.submissions, data.coding_submissions]);
+  const latestReports = useMemo(() => {
+    const latest = new Map();
+    for (const item of portfolioSubmissions) {
+      if (item.kind === "code" || !item.challenge?._id) continue;
+      const previous = latest.get(item.challenge._id);
+      const version = Number(item.version || 0);
+      const previousVersion = Number(previous?.version || 0);
+      if (!previous || version > previousVersion || (version === previousVersion && (item.created_at || "") > (previous.created_at || ""))) latest.set(item.challenge._id, item);
+    }
+    return latest;
+  }, [portfolioSubmissions]);
+  const allChallenges = data.challenges;
   const openChallenges = useMemo(() => allChallenges.filter((item) => item.status === "published"), [allChallenges]);
   const participations = useMemo(() => allChallenges.filter((item) => item.participation), [allChallenges]);
-  const approved = useMemo(() => data.submissions.filter((item) => item.evaluation?.decision === "shortlisted"), [data]);
-
-  function submitDemoSolution(challenge, formData) {
-    const summary = String(formData.get("summary") || "").trim();
-    if (!summary) throw new Error("Informe o resumo da solução.");
-    const nextState = {
-      ...demoState,
-      [challenge._id]: {
-        ...demoState[challenge._id],
-        participation: { status: "submitted" },
-        submission: {
-          summary,
-          report_url: String(formData.get("report_url") || "").trim(),
-        },
-      },
-    };
-    saveDemoState(storageKey, nextState);
-    setDemoState(nextState);
-  }
+  const approved = useMemo(() => {
+    const selected = new Set();
+    function add(challengeId, participation, evaluation) {
+      if (!["shortlisted", "approved"].includes(participation?.status) && evaluation?.decision !== "shortlisted") return;
+      const key = challengeId || participation?.challenge_id || participation?._id;
+      if (key) selected.add(key);
+    }
+    for (const item of data.challenges) add(item._id, item.participation);
+    for (const item of [...data.submissions, ...(data.coding_submissions || [])]) add(item.challenge?._id || item.challenge_id, item.participation, item.evaluation);
+    return [...selected];
+  }, [data]);
 
   return <DashboardLayout role="talent" active={active} setActive={setActive}>
     {loading && <div className="loader">CARREGANDO DADOS<span>_</span></div>}
     {!loading && active === "explore" && <>
       <PageHeader eyebrow="OPORTUNIDADES ABERTAS" title="Desafios para provar na prática." description="Escolha um processo seletivo e mostre como você resolve problemas reais." />
-      <p>Os exemplos fictícios continuam disponíveis. Neles, inscrições, resumos e links ficam salvos somente neste navegador.</p>
       <div className="metrics"><Metric number={openChallenges.length} label="Desafios abertos" detail="Agora" /><Metric number={participations.length} label="Participações" detail="No total" /><Metric number={approved.length} label="Shortlists" detail="Conquistadas" /></div>
       <div className="card-grid">{openChallenges.map((challenge) => <ChallengeCard key={challenge._id} challenge={challenge} role="talent" onJoin={join} onSubmit={setModal} />)}</div>
     </>}
     {!loading && active === "participations" && <><PageHeader eyebrow="MINHA JORNADA" title="Participações" description="Acompanhe cada etapa dos desafios em que você entrou." /><div className="card-grid">{participations.length ? participations.map((challenge) => <ChallengeCard key={challenge._id} challenge={challenge} role="talent" onJoin={join} onSubmit={setModal} />) : <EmptyState title="Você ainda não participa de desafios" text="Acesse Explorar e encontre uma oportunidade." />}</div></>}
-    {!loading && active === "portfolio" && <><PageHeader eyebrow="EVIDÊNCIAS DE COMPETÊNCIA" title="Portfólio validado" description="Suas entregas e avaliações ficam reunidas aqui." /><div className="submission-list">{data.submissions.length || demoSubmissions.length ? [...demoSubmissions, ...data.submissions].map((item) => <article className="submission" key={item._id}><div><Status value={item.participation?.status || "submitted"} /><h3>{item.challenge?.title}</h3><p>{item.summary}</p><div className="tag-row">{(item.challenge?.skills || []).map((x) => <span key={x}>{x}</span>)}</div></div><div className="submission-side">{item.evaluation ? <><strong>{item.evaluation.score}/100</strong><small>{item.evaluation.feedback}</small></> : <small>Aguardando avaliação</small>}{item.file_name && <button className="outline-button small" onClick={() => downloadSubmission(item._id, item.file_name)}>BAIXAR ARQUIVO</button>}{item.report_url && <a className="outline-button small" href={item.report_url} target="_blank" rel="noreferrer">ABRIR LINK</a>}</div></article>) : <EmptyState title="Portfólio vazio" text="Envie uma solução para começar a construir suas evidências." />}</div></>}
+    {!loading && active === "portfolio" && <><PageHeader eyebrow="EVIDÊNCIAS DE COMPETÊNCIA" title="Portfólio validado" description="Suas respostas, entregas e avaliações ficam reunidas aqui para consulta." /><div className="submission-list">{portfolioSubmissions.length ? portfolioSubmissions.map((item) => <PortfolioSubmission key={`${item.kind || "report"}_${item._id}`} item={item} isLatestReport={latestReports.get(item.challenge?._id)?._id === item._id} />) : <EmptyState title="Portfólio vazio" text="Envie uma solução para começar a construir suas evidências." />}</div></>}
     {!loading && active === "profile" && <ProfileForm profile={data.profile} role="talent" onSaved={load} />}
-    {modal && <SubmissionModal challenge={modal} onClose={() => setModal(null)} onDemoSubmit={submitDemoSolution} onDone={(message, isDemo) => { setToast({ message }); if (!isDemo) load(); }} />}
+    {modal && (modal.coding_enabled ? <CodingWorkspace key={`${user._id}_${modal._id}`} challenge={modal} onClose={() => setModal(null)} onUpdated={load} /> : <SubmissionModal challenge={modal} onClose={() => setModal(null)} onDone={(message) => { setToast({ message }); load(); }} />)}
     {toast && <Toast {...toast} onClose={() => setToast(null)} />}
   </DashboardLayout>;
 }
+
 
 function ChallengeForm({ onCreated, challenge, onCancel }) {
   const { user } = useAuth();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [created, setCreated] = useState(null);
+  const [challengeType, setChallengeType] = useState("report");
+  const [codingConfig, setCodingConfig] = useState(createCodingChallengeConfig);
   async function submit(event) {
     event.preventDefault();
 
@@ -370,6 +436,10 @@ function ChallengeForm({ onCreated, challenge, onCancel }) {
       .filter(Boolean);
 
     try {
+      if (!challenge && challengeType === "code") {
+        if (!codingConfig.languages.length) throw new Error("Selecione pelo menos uma linguagem permitida.");
+        fields.coding_config = { ...codingConfig, max_points: Number(codingConfig.max_points) };
+      }
       const result = await api(challenge ? `/challenges/${challenge._id}` : "/challenges", {
         method: challenge ? "PATCH" : "POST",
         body: JSON.stringify(fields),
@@ -377,6 +447,8 @@ function ChallengeForm({ onCreated, challenge, onCancel }) {
 
       if (!challenge) {
         form.reset();
+        setChallengeType("report");
+        setCodingConfig(createCodingChallengeConfig());
         setCreated(result.challenge);
       }
       await onCreated(result.challenge);
@@ -390,6 +462,7 @@ function ChallengeForm({ onCreated, challenge, onCancel }) {
     {created && <div className="form-success" role="status">Desafio salvo como rascunho. <a className="inline-link" href={`#${challengePath(created._id)}`}>Abrir a página do desafio para conferir e enviar para aprovação →</a></div>}
     {challenge && user.role === "company" && ["published", "pending_review"].includes(challenge.status) && <p className="review-note">Ao alterar o enunciado, o desafio volta a ser rascunho e precisa de uma nova aprovação antes de aparecer para os talentos.</p>}
     <div className="form-grid">
+      {!challenge && <label className="wide">Tipo de desafio<select value={challengeType} onChange={(event) => setChallengeType(event.target.value)}><option value="report">Relatório, link ou arquivo</option><option value="code">Código com correção automática (Judge0)</option></select></label>}
       <label className="wide">Título do desafio<input name="title" required defaultValue={challenge?.title} placeholder="Ex.: Investigação de incidente em ambiente cloud" /></label>
       <label>Nível<select name="level" defaultValue={challenge?.level || "Intermediário"}><option>Júnior</option><option>Intermediário</option><option>Sênior</option></select></label>
       <label>Modelo<select name="work_mode" defaultValue={challenge?.work_mode || "Remoto"}><option>Remoto</option><option>Híbrido</option><option>Presencial</option></select></label>
@@ -398,14 +471,32 @@ function ChallengeForm({ onCreated, challenge, onCancel }) {
       <label>Competências<input name="skills" required defaultValue={(challenge?.skills || []).join(", ")} placeholder="SOC, AWS, Python" /></label>
       <label>Prazo<input type="date" name="deadline" required defaultValue={challenge?.deadline?.slice(0, 10)} /></label>
     </div>
+    {!challenge && challengeType === "code" && <CodingChallengeFields value={codingConfig} onChange={setCodingConfig} />}
     {error && <div className="form-error">{error}</div>}
     <div className="card-actions"><button className="primary-button" disabled={loading}>{loading ? "SALVANDO..." : challenge ? "SALVAR ALTERAÇÕES →" : "SALVAR COMO RASCUNHO →"}</button>{onCancel && <button type="button" className="outline-button" onClick={onCancel}>CANCELAR</button>}</div>
   </form>;
 }
 
-function EvaluationCard({ submission, onEvaluated }) {
+function EvaluationCard({ submission, onEvaluated, onShortlisted }) {
   const [open, setOpen] = useState(false);
   const [error, setError] = useState("");
+  const [shortlisting, setShortlisting] = useState(false);
+  const isCode = submission.kind === "code";
+  async function download() {
+    setError("");
+    try { await downloadSubmission(submission._id, submission.file_name); }
+    catch (err) { setError(err.message); }
+  }
+  async function addToShortlist() {
+    if (shortlisting || submission.shortlisted || !submission.participation?._id) return;
+    setShortlisting(true);
+    setError("");
+    try {
+      await api(`/participations/${submission.participation._id}/shortlist`, { method: "POST" });
+      await onShortlisted();
+    } catch (err) { setError(err.message); }
+    finally { setShortlisting(false); }
+  }
   async function submit(event) {
     event.preventDefault();
     const fields = Object.fromEntries(new FormData(event.currentTarget));
@@ -413,28 +504,69 @@ function EvaluationCard({ submission, onEvaluated }) {
     try { await api(`/submissions/${submission._id}/evaluate`, { method: "POST", body: JSON.stringify(fields) }); setOpen(false); onEvaluated(); }
     catch (err) { setError(err.message); }
   }
-  return <article className="evaluation-card"><div className="evaluation-main"><div className="avatar">{(submission.talent?.name || "T").slice(0, 2).toUpperCase()}</div><div><div className="evaluation-meta"><Status value={submission.participation?.status || "submitted"} /><span>Versão {submission.version}</span></div><h3>{submission.talent?.name}</h3><strong>{submission.challenge?.title}</strong><p>{submission.summary}</p><div className="tag-row">{(submission.talent?.skills || []).map((skill) => <span key={skill}>{skill}</span>)}</div></div></div><div className="evaluation-actions">{submission.file_name && <button className="outline-button small" onClick={() => downloadSubmission(submission._id, submission.file_name)}>BAIXAR</button>}{submission.report_url && <a className="outline-button small" href={submission.report_url} target="_blank" rel="noreferrer">ABRIR LINK</a>}<button className="primary-button small" onClick={() => setOpen(!open)}>{submission.evaluation ? "REAVALIAR" : "AVALIAR →"}</button></div>{open && <form className="inline-evaluation" onSubmit={submit}><label>Nota (0 a 100)<input type="number" name="score" min="0" max="100" defaultValue={submission.evaluation?.score || 80} required /></label><label>Decisão<select name="decision" defaultValue={submission.evaluation?.decision || "shortlisted"}><option value="shortlisted">Adicionar à shortlist</option><option value="rejected">Não selecionar</option></select></label><label className="wide">Feedback<textarea name="feedback" required rows="3" defaultValue={submission.evaluation?.feedback} placeholder="Registre os pontos fortes e oportunidades de melhoria..." /></label>{error && <div className="form-error wide">{error}</div>}<button className="primary-button small">SALVAR AVALIAÇÃO</button></form>}</article>;
+  return <article className="evaluation-card">
+    <div className="evaluation-main">
+      <div className="avatar">{(submission.talent?.name || "T").slice(0, 2).toUpperCase()}</div>
+      <div>
+        <div className="evaluation-meta"><Status value={submission.participation?.status || "submitted"} /><span>{isCode ? "Código" : `Relatório · Versão ${submission.version || 1}`}</span></div>
+        <h3>{submission.talent?.name}</h3>
+        <p>{submission.talent?.email}</p>
+        <strong>{submission.challenge?.title}</strong>
+        {isCode ? <>
+          <p>{({ python: "Python", javascript: "JavaScript", cpp: "C++" })[submission.language] || submission.language}</p>
+          {submission.status === "completed" ? <p><strong>{formatPoints(submission.score ?? 0)} / {formatPoints(submission.max_points ?? 100)} pontos</strong> · {submission.passed ?? 0}/{submission.total ?? 0} casos corretos</p>
+            : submission.status === "service_error" ? <p>Falha na correção automática. O código enviado está disponível.</p>
+            : <p>Correção em andamento.</p>}
+          <details><summary>VER CÓDIGO ENVIADO</summary><pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{submission.source_code}</pre></details>
+        </> : <p className="challenge-content">{submission.summary}</p>}
+        <div className="tag-row">{(submission.talent?.skills || []).map((skill) => <span key={skill}>{skill}</span>)}</div>
+      </div>
+    </div>
+    <div className="evaluation-actions">
+      {submission.file_name && <button className="outline-button small" onClick={download}>BAIXAR</button>}
+      {submission.report_url && <a className="outline-button small" href={submission.report_url} target="_blank" rel="noreferrer">ABRIR LINK</a>}
+      {!isCode && <button className="primary-button small" onClick={() => setOpen(!open)}>{submission.evaluation ? "REAVALIAR" : "AVALIAR →"}</button>}
+      <button className="outline-button small" disabled={shortlisting || submission.shortlisted || !submission.participation?._id} aria-busy={shortlisting} onClick={addToShortlist}>{submission.shortlisted ? "NA SHORTLIST" : shortlisting ? "ADICIONANDO..." : "ADICIONAR À SHORTLIST"}</button>
+    </div>
+    {error && <div className="form-error" role="alert">{error}</div>}
+    {!isCode && open && <form className="inline-evaluation" onSubmit={submit}><label>Nota (0 a 100)<input type="number" name="score" min="0" max="100" defaultValue={submission.evaluation?.score ?? 80} required /></label><label>Decisão<select name="decision" defaultValue={submission.evaluation?.decision || "shortlisted"}><option value="shortlisted">Adicionar à shortlist</option><option value="rejected">Não selecionar</option></select></label><label className="wide">Feedback<textarea name="feedback" required rows="3" defaultValue={submission.evaluation?.feedback} placeholder="Registre os pontos fortes e oportunidades de melhoria..." /></label><button className="primary-button small">SALVAR AVALIAÇÃO</button></form>}
+  </article>;
 }
 
 function CompanyDashboard({ initialActive = "overview" }) {
+  const { user } = useAuth();
   const [active, setActive] = useState(initialActive);
   useEffect(() => { setActive(initialActive); }, [initialActive]);
   const [data, setData] = useState({ challenges: [], submissions: [], profile: {} });
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
+  const [codingSettings, setCodingSettings] = useState(null);
   const load = useCallback(async () => { setLoading(true); try { setData(await api("/dashboard")); } catch (err) { setToast({ message: err.message, kind: "error" }); } finally { setLoading(false); } }, []);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(); }, [load, active]);
   async function challengeAction(id, action) { try { await api(`/challenges/${id}/status`, { method: "PATCH", body: JSON.stringify({ action }) }); setToast({ message: challengeActionMessage(action) }); await load(); } catch (err) { setToast({ message: err.message, kind: "error" }); } }
-  const pending = data.submissions.filter((x) => !x.evaluation);
-  const shortlisted = data.submissions.filter((x) => x.evaluation?.decision === "shortlisted");
+  const submissions = useMemo(() => [...data.submissions, ...(data.coding_submissions || [])].sort((a, b) => (Date.parse(b.created_at) || 0) - (Date.parse(a.created_at) || 0)), [data.submissions, data.coding_submissions]);
+  const pending = submissions.filter((x) => !x.evaluation && !x.shortlisted);
+  const shortlisted = data.shortlist || [];
   const totalParticipants = data.challenges.reduce((sum, x) => sum + (x.participant_count || 0), 0);
   return <DashboardLayout role="company" active={active} setActive={setActive}>
     {loading && <div className="loader">CARREGANDO DADOS<span>_</span></div>}
-    {!loading && active === "overview" && <><PageHeader eyebrow="PAINEL DA EMPRESA" title={`Olá, ${data.profile.organization_name || data.profile.name}.`} description="Acompanhe seus processos seletivos em cibersegurança." action={<button className="primary-button small" onClick={() => setActive("publish")}>+ NOVO DESAFIO</button>} /><div className="metrics"><Metric number={data.challenges.filter((x) => x.status === "published").length} label="Processos ativos" detail="Publicados" /><Metric number={totalParticipants} label="Participantes" detail="Em desafios" /><Metric number={pending.length} label="Para avaliar" detail="Entregas pendentes" /><Metric number={shortlisted.length} label="Shortlist" detail="Talentos" /></div><h2 className="section-title">Seus desafios</h2><div className="card-grid">{data.challenges.length ? data.challenges.map((challenge) => <ChallengeCard key={challenge._id} challenge={challenge} role="company" onAction={challengeAction} />) : <EmptyState title="Nenhum desafio criado" text="Cadastre seu primeiro desafio e envie para aprovação da administração." />}</div></>}
+    {!loading && active === "overview" && <><PageHeader eyebrow="PAINEL DA EMPRESA" title={`Olá, ${data.profile.organization_name || data.profile.name}.`} description="Acompanhe seus processos seletivos em cibersegurança." action={<button className="primary-button small" onClick={() => setActive("publish")}>+ NOVO DESAFIO</button>} /><div className="metrics"><Metric number={data.challenges.filter((x) => x.status === "published").length} label="Processos ativos" detail="Publicados" /><Metric number={totalParticipants} label="Participantes" detail="Em desafios" /><Metric number={pending.length} label="Para avaliar" detail="Entregas pendentes" /><Metric number={shortlisted.length} label="Shortlist" detail="Talentos" /></div><h2 className="section-title">Seus desafios</h2><div className="card-grid">{data.challenges.length ? data.challenges.map((challenge) => <ChallengeCard key={challenge._id} challenge={challenge} role="company" onAction={challengeAction} onConfigureCoding={canConfigureCoding(challenge, user) ? setCodingSettings : undefined} />) : <EmptyState title="Nenhum desafio criado" text="Cadastre seu primeiro desafio e envie para aprovação da administração." />}</div></>}
     {!loading && active === "publish" && <><PageHeader eyebrow="NOVO PROCESSO SELETIVO" title="Crie um desafio técnico." description="Cadastre o enunciado e envie para aprovação. O desafio aparece para os talentos após a análise da administração." /><ChallengeForm onCreated={(challenge) => { setToast({ message: "Rascunho criado. Abra o desafio para enviar à aprovação da administração." }); setData((current) => ({ ...current, challenges: [challenge, ...current.challenges] })); }} /></>}
-    {!loading && active === "evaluations" && <><PageHeader eyebrow="ANÁLISE TÉCNICA" title="Avalie as entregas." description="Dê uma nota, deixe feedback e escolha quem avança." /><div className="evaluation-list">{data.submissions.length ? data.submissions.map((item) => <EvaluationCard key={item._id} submission={item} onEvaluated={() => { setToast({ message: "Avaliação salva." }); load(); }} />) : <EmptyState title="Nenhuma entrega recebida" text="As soluções enviadas pelos participantes aparecerão aqui." />}</div></>}
-    {!loading && active === "shortlist" && <><PageHeader eyebrow="TALENTOS SELECIONADOS" title="Sua shortlist." description="Perfis que se destacaram nos desafios técnicos." /><div className="talent-grid">{shortlisted.length ? shortlisted.map((item) => <article className="talent-card" key={item._id}><div className="avatar large">{item.talent?.name?.slice(0, 2).toUpperCase()}</div><h3>{item.talent?.name}</h3><p>{item.talent?.headline}</p><div className="score">{item.evaluation.score}<small>/100</small></div><strong>{item.challenge?.title}</strong><div className="tag-row">{(item.talent?.skills || []).map((skill) => <span key={skill}>{skill}</span>)}</div><a href={`mailto:${item.talent?.email}`} className="primary-button small">ENTRAR EM CONTATO →</a></article>) : <EmptyState title="Shortlist vazia" text="Avalie uma entrega como aprovada para adicionar o talento." />}</div></>}
+    {!loading && active === "evaluations" && <><PageHeader eyebrow="ANÁLISE TÉCNICA" title="Avalie as entregas." description="Consulte relatórios e soluções em código e selecione os candidatos." /><div className="evaluation-list">{submissions.length ? submissions.map((item) => <EvaluationCard key={`${item.kind || "report"}_${item._id}`} submission={item} onEvaluated={() => { setToast({ message: "Avaliação salva." }); return load(); }} onShortlisted={() => { setToast({ message: "Talento adicionado à shortlist." }); return load(); }} />) : <EmptyState title="Nenhuma entrega recebida" text="As soluções enviadas pelos participantes aparecerão aqui." />}</div></>}
+    {!loading && active === "shortlist" && <><PageHeader eyebrow="TALENTOS SELECIONADOS" title="Sua shortlist." description="Perfis que se destacaram nos desafios técnicos." /><div className="talent-grid">{shortlisted.length ? shortlisted.map((item) => <article className="talent-card" key={item.talent._id}>
+      <div className="avatar large">{(item.talent.name || "T").slice(0, 2).toUpperCase()}</div>
+      <h3>{item.talent.name}</h3>
+      <p>{item.talent.email}</p>
+      {item.talent.headline && <strong>{item.talent.headline}</strong>}
+      {item.talent.talent_type && <p>{({ student: "Estudante", professional: "Profissional" })[item.talent.talent_type] || item.talent.talent_type}</p>}
+      {item.talent.city && <p>{item.talent.city}</p>}
+      {item.talent.bio && <p className="challenge-content">{item.talent.bio}</p>}
+      <div className="tag-row">{(item.talent.skills || []).map((skill) => <span key={skill}>{skill}</span>)}</div>
+      <div>{(item.challenges || []).map((challenge) => <p key={challenge._id}>{challenge.title}</p>)}</div>
+      {item.talent.email && <a href={`mailto:${item.talent.email}`} className="primary-button small">ENTRAR EM CONTATO →</a>}
+    </article>) : <EmptyState title="Shortlist vazia" text="Adicione um talento pela aba Avaliações para acompanhar seu perfil aqui." />}</div></>}
     {!loading && active === "profile" && <ProfileForm profile={data.profile} role="company" onSaved={load} />}
+    {codingSettings && <CodingSettings challenge={codingSettings} onClose={() => setCodingSettings(null)} onSaved={async () => { setToast({ message: "Avaliação por código salva. Envie o desafio para aprovação quando estiver pronto." }); await load(); }} />}
     {toast && <Toast {...toast} onClose={() => setToast(null)} />}
   </DashboardLayout>;
 }
@@ -446,40 +578,35 @@ function ChallengeDetail({ challengeId }) {
   const [editing, setEditing] = useState(false);
   const [modal, setModal] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [pendingAction, setPendingAction] = useState("");
   const [reviewOpen, setReviewOpen] = useState(false);
+  const [codingSettingsOpen, setCodingSettingsOpen] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
-  const storageKey = demoStorageKey(user);
-  const isDemo = isDemoChallenge(challengeId);
+  const [toast, setToast] = useState(null);
+  const isDemo = isDemoChallenge(challenge?._id);
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
+    try { await syncLegacyParticipations(user); }
+    catch (err) { setToast({ message: err.message, kind: "error" }); }
     try {
-      if (isDemoChallenge(challengeId)) {
-        const item = getDemoChallenges(loadDemoState(storageKey)).find((row) => row._id === challengeId);
-        if (!item) throw new Error("Desafio não encontrado.");
-        setChallenge(item);
-      } else {
-        const result = await api(`/challenges/${challengeId}`);
-        setChallenge(result.challenge);
-      }
+      const result = await api(`/challenges/${challengeId}`);
+      setChallenge(result.challenge);
     } catch (err) { setError(err.message); }
     finally { setLoading(false); }
-  }, [challengeId, storageKey]);
+  }, [challengeId, user._id]);
   useEffect(() => { load(); }, [load]);
 
   const canManage = !isDemo && (user.role === "admin" || (user.role === "company" && challenge?.owner_id === user._id));
-  const canSubmit = user.role === "talent" && challenge?.status === "published" && ["joined", "submitted"].includes(challenge?.participation?.status);
+  const canSubmit = user.role === "talent" && canSubmitReport(challenge);
+  const canOpenCoding = !isDemo && user.role === "talent" && challenge?.coding_enabled && Boolean(challenge?.participation) && ["published", "closed"].includes(challenge?.status);
+  const codingEditable = canConfigureCoding(challenge, user);
   async function join() {
     setBusy(true);
     setError("");
     try {
-      if (isDemo) {
-        const state = loadDemoState(storageKey);
-        saveDemoState(storageKey, { ...state, [challengeId]: { ...state[challengeId], participation: { status: "joined" } } });
-      } else {
-        await api(`/challenges/${challengeId}/join`, { method: "POST" });
-      }
+      await api(`/challenges/${challenge._id}/join`, { method: "POST" });
       setMessage("Inscrição confirmada! Você já pode enviar sua solução.");
       await load();
     } catch (err) { setError(err.message); }
@@ -487,36 +614,25 @@ function ChallengeDetail({ challengeId }) {
   }
   async function changeStatus(action, extra = {}) {
     setBusy(true);
+    setPendingAction(action);
     setError("");
+    setMessage("");
+    setToast(null);
     try {
-      await api(`/challenges/${challengeId}/status`, { method: "PATCH", body: JSON.stringify({ action, review_revision: challenge.revision ?? 0, ...extra }) });
+      await api(`/challenges/${challenge._id}/status`, { method: "PATCH", body: JSON.stringify({ action, review_revision: challenge.revision ?? 0, ...extra }) });
       setReviewOpen(false);
-      setMessage(challengeActionMessage(action));
+      setToast({ message: challengeActionMessage(action), kind: "success" });
       await load();
-    } catch (err) { setError(err.message); }
-    finally { setBusy(false); }
+    } catch (err) { setToast({ message: err.message, kind: "error" }); }
+    finally { setBusy(false); setPendingAction(""); }
   }
-  function submitDemo(challengeToSubmit, formData) {
-    const summary = String(formData.get("summary") || "").trim();
-    if (!summary) throw new Error("Informe o resumo da solução.");
-    const state = loadDemoState(storageKey);
-    saveDemoState(storageKey, {
-      ...state,
-      [challengeToSubmit._id]: {
-        ...state[challengeToSubmit._id],
-        participation: { status: "submitted" },
-        submission: { summary, report_url: String(formData.get("report_url") || "").trim() },
-      },
-    });
-  }
-
   return <DashboardLayout role={user.role} active="" setActive={(section) => go(`${homeForRole(user.role)}?aba=${section}`)}>
     <a className="text-button challenge-back" href={`#${homeForRole(user.role)}`}>← VOLTAR AOS DESAFIOS</a>
     {loading && <div className="loader">CARREGANDO DESAFIO<span>_</span></div>}
     {error && <div className="form-error" role="alert">{error} <button className="text-button" onClick={load}>TENTAR NOVAMENTE</button></div>}
     {message && <div className="form-success" role="status">{message}</div>}
     {!loading && challenge && <>
-      <PageHeader eyebrow={isDemo ? "DESAFIO DEMONSTRATIVO" : "DESAFIO / CTF"} title={editing ? "Editar enunciado" : challenge.title} description={challenge.company_name} />
+      <PageHeader eyebrow="DESAFIO / CTF" title={editing ? "Editar enunciado" : challenge.title} description={challenge.company_name} />
       {editing ? <ChallengeForm challenge={challenge} onCancel={() => setEditing(false)} onCreated={(saved) => { setChallenge(saved); setEditing(false); setMessage(user.role === "company" && saved.status === "draft" ? "Enunciado salvo como rascunho. Envie o desafio para aprovação antes de publicar." : "Enunciado atualizado."); }} /> : <article className="challenge-card challenge-detail">
         <div className="challenge-top"><Status value={challenge.status} /><span>{challenge.level}</span></div>
         {canManage && challenge.status === "pending_review" && <p className="review-note">{user.role === "admin" ? "Revise o enunciado e os entregáveis antes de aprovar a publicação ou solicitar ajustes." : "Seu desafio está aguardando a aprovação da administração. Ele ainda não aparece para os talentos."}</p>}
@@ -525,17 +641,18 @@ function ChallengeDetail({ challengeId }) {
         <h2>Enunciado do desafio</h2><p className="challenge-content">{challenge.description}</p>
         <h2>Entregáveis</h2><p className="challenge-content">{challenge.deliverables || "Apresente sua análise, as evidências e as recomendações para o cenário descrito."}</p>
         <div className="tag-row">{(challenge.skills || []).map((skill) => <span key={skill}>{skill}</span>)}</div>
-        {isDemo && <p>Este é um exemplo fictício. A participação e a solução ficam salvas somente neste navegador.</p>}
         {challenge.status !== "published" && user.role === "talent" && <p>Este desafio não está recebendo novas soluções.</p>}
         <div className="card-actions">
           {user.role === "talent" && challenge.status === "published" && !challenge.participation && <button className="primary-button" disabled={busy} onClick={join}>PARTICIPAR →</button>}
-          {canSubmit && <button className="primary-button" onClick={() => setModal(true)}>ENVIAR SOLUÇÃO →</button>}
+          {(canSubmit || canOpenCoding) && <button className="primary-button" onClick={() => setModal(true)}>{canOpenCoding ? challenge.status === "closed" ? "CONSULTAR CÓDIGO E RESULTADOS →" : "ABRIR EDITOR →" : challenge.latest_submission ? "EDITAR ENTREGA →" : "ENVIAR SOLUÇÃO →"}</button>}
           {user.role === "talent" && challenge.participation && <Status value={challenge.participation.status} />}
           {canManage && <>
+            {codingEditable && <button className="outline-button" disabled={busy} onClick={() => setCodingSettingsOpen(true)}>CONFIGURAR CÓDIGO</button>}
+            {challenge.coding_enabled && !codingEditable && <button className="outline-button" disabled={busy} onClick={() => setCodingSettingsOpen(true)}>{user.role === "admin" ? "REVISAR AVALIAÇÃO POR CÓDIGO" : "VER AVALIAÇÃO POR CÓDIGO"}</button>}
             <button className="outline-button" disabled={busy} onClick={() => setEditing(true)}>EDITAR ENUNCIADO</button>
             {user.role === "company" && ["draft", "changes_requested", "closed"].includes(challenge.status) && <button className="primary-button" disabled={busy} onClick={() => changeStatus("submit_review")}>ENVIAR PARA APROVAÇÃO →</button>}
             {user.role === "admin" && challenge.status === "pending_review" && <>
-              <button className="primary-button" disabled={busy} onClick={() => changeStatus("approve")}>APROVAR E PUBLICAR →</button>
+              <button className="primary-button" disabled={busy} aria-busy={pendingAction === "approve"} onClick={() => changeStatus("approve")}>{pendingAction === "approve" ? "APROVANDO..." : "APROVAR E PUBLICAR →"}</button>
               <button className="outline-button" disabled={busy} onClick={() => setReviewOpen(!reviewOpen)}>SOLICITAR AJUSTES</button>
             </>}
             {challenge.status === "published" && <button className="outline-button" disabled={busy} onClick={() => changeStatus("close")}>ENCERRAR DESAFIO</button>}
@@ -548,7 +665,9 @@ function ChallengeDetail({ challengeId }) {
         </form>}
       </article>}
     </>}
-    {modal && challenge && <SubmissionModal challenge={challenge} onClose={() => setModal(false)} onDemoSubmit={submitDemo} onDone={(text) => { setMessage(text); load(); }} />}
+    {modal && challenge && (canOpenCoding ? <CodingWorkspace key={`${user._id}_${challenge._id}`} challenge={challenge} onClose={() => setModal(false)} onUpdated={load} /> : <SubmissionModal challenge={challenge} onClose={() => setModal(false)} onDone={(text) => { setMessage(text); load(); }} />)}
+    {codingSettingsOpen && challenge && canManage && <CodingSettings challenge={challenge} readOnly={!codingEditable} onClose={() => setCodingSettingsOpen(false)} onSaved={async () => { setMessage("Avaliação por código salva. Envie o desafio para aprovação quando estiver pronto."); await load(); }} />}
+    {toast && <Toast {...toast} onClose={() => setToast(null)} />}
   </DashboardLayout>;
 }
 
@@ -599,7 +718,7 @@ function ProfileForm({ profile, role, onSaved }) {
     event.preventDefault();
     const fields = Object.fromEntries(new FormData(event.currentTarget));
     fields.skills = fields.skills ? fields.skills.split(",").map((x) => x.trim()).filter(Boolean) : [];
-    try { const result = await api("/profile", { method: "PUT", body: JSON.stringify(fields) }); setUser(result.profile); localStorage.setItem("return_tech_user", JSON.stringify(result.profile)); setMessage("Perfil atualizado."); onSaved(); } catch (err) { setMessage(err.message); }
+    try { const result = await api("/profile", { method: "PATCH", body: JSON.stringify(fields) }); setUser(result.profile); localStorage.setItem("return_tech_user", JSON.stringify(result.profile)); setMessage("Perfil atualizado."); onSaved(); } catch (err) { setMessage(err.message); }
   }
   return <><PageHeader eyebrow="CONFIGURAÇÕES" title={role === "company" ? "Perfil da empresa" : "Seu perfil"} description="Mantenha seus dados atualizados na plataforma." /><form className="editor-form" onSubmit={submit}><div className="form-grid"><label>Nome<input name="name" defaultValue={profile.name} required /></label>{role === "company" && <label>Organização<input name="organization_name" defaultValue={profile.organization_name} required /></label>}<label>Título / cargo<input name="headline" defaultValue={profile.headline} /></label><label>Cidade<input name="city" defaultValue={profile.city} /></label>{role === "talent" && <label className="wide">Competências<input name="skills" defaultValue={(profile.skills || []).join(", ")} /></label>}<label className="wide">Sobre<textarea name="bio" rows="5" defaultValue={profile.bio} placeholder="Conte um pouco sobre sua atuação..." /></label></div>{message && <div className={message.includes("atualizado") ? "form-success" : "form-error"}>{message}</div>}<button className="primary-button">SALVAR ALTERAÇÕES →</button></form></>;
 }
@@ -611,6 +730,9 @@ function App() {
   const { user, checking } = useAuth();
   if (checking) return <div className="app-loading"><Brand /><div className="loader">VALIDANDO SESSÃO<span>_</span></div></div>;
   if (route === "/login") return <AuthPage mode="login" />;
+  if (route === "/login/talent") return <AuthPage mode="login" role="talent" />;
+  if (route === "/login/company") return <AuthPage mode="login" role="company" />;
+  if (route === "/cadastro") return <Landing register />;
   if (route === "/cadastro/talent") return <AuthPage mode="register" role="talent" />;
   if (route === "/cadastro/company") return <AuthPage mode="register" role="company" />;
   if (path === "/admin") {
@@ -622,8 +744,8 @@ function App() {
     const challengeId = path.slice("/desafios/".length);
     return <ChallengeDetail key={challengeId} challengeId={challengeId} />;
   }
-  if (path === "/talentos") return user?.role === "talent" ? <TalentDashboard initialActive={["explore", "participations", "portfolio", "profile"].includes(section) ? section : "explore"} /> : <AuthPage mode="login" />;
-  if (path === "/empresas") return user?.role === "company" ? <CompanyDashboard initialActive={["overview", "publish", "evaluations", "shortlist", "profile"].includes(section) ? section : "overview"} /> : <AuthPage mode="login" />;
+  if (path === "/talentos") return user?.role === "talent" ? <TalentDashboard initialActive={["explore", "participations", "portfolio", "profile"].includes(section) ? section : "explore"} /> : <AuthPage mode="login" role="talent" />;
+  if (path === "/empresas") return user?.role === "company" ? <CompanyDashboard initialActive={["overview", "publish", "evaluations", "shortlist", "profile"].includes(section) ? section : "overview"} /> : <AuthPage mode="login" role="company" />;
   if (user) { go(homeForRole(user.role)); return null; }
   return <Landing />;
 }

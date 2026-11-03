@@ -1,5 +1,18 @@
+# Dependências e compilação
 node_modules/
 dist/
+
+# Configuração local e credenciais
 .env
+.env.*
+!.env.example
+.venv/
+
+# Relatórios de testes e logs
+coverage/
+*.log
+
+# Arquivos locais do sistema
 .DS_Store
-.venv
+Thumbs.db
+Desktop.ini

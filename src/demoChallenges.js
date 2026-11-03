@@ -10,7 +10,7 @@ export const DEMO_CHALLENGES = [
     status: "published",
     level: "Júnior",
     title: "Triagem de alertas de acesso suspeito",
-    description: "A Sentinel Fintech identificou tentativas de acesso fora do padrão. Analise alertas fictícios e proponha uma priorização e um fluxo de resposta para o time de SOC.",
+    description: "A Sentinel Fintech identificou tentativas de acesso fora do padrão. Analise alertas de segurança e proponha uma priorização e um fluxo de resposta para o time de SOC.",
     skills: ["SOC", "Análise de logs", "Resposta a incidentes"],
     deadline: daysFromNow(14),
     work_mode: "Remoto",
@@ -21,7 +21,7 @@ export const DEMO_CHALLENGES = [
     status: "published",
     level: "Intermediário",
     title: "Revisão de segurança em ambiente de nuvem",
-    description: "A Aurora Cloud está revisando a configuração de um ambiente fictício. Identifique riscos de exposição, organize as prioridades e proponha controles preventivos.",
+    description: "A Aurora Cloud está revisando a configuração do ambiente. Identifique riscos de exposição, organize as prioridades e proponha controles preventivos.",
     skills: ["Segurança em nuvem", "AWS", "IAM"],
     deadline: daysFromNow(21),
     work_mode: "Híbrido",
@@ -54,7 +54,7 @@ export const DEMO_CHALLENGES = [
     status: "published",
     level: "Sênior",
     title: "Avaliação de segurança de API em escopo controlado",
-    description: "A Solaris Energia está preparando uma API fictícia para lançamento. Faça uma avaliação defensiva dentro do escopo fornecido e entregue riscos priorizados e sugestões de mitigação.",
+    description: "A Solaris Energia está preparando uma API para lançamento. Faça uma avaliação defensiva dentro do escopo fornecido e entregue riscos priorizados e sugestões de mitigação.",
     skills: ["Segurança de APIs", "OWASP", "Python"],
     deadline: daysFromNow(25),
     work_mode: "Híbrido",
@@ -88,7 +88,7 @@ export function loadDemoState(storageKey) {
 
   const state = JSON.parse(stored);
   if (!state || typeof state !== "object" || Array.isArray(state)) {
-    throw new Error("Os dados locais dos desafios demonstrativos estão inválidos.");
+    throw new Error("Os dados das suas inscrições estão inválidos.");
   }
   return state;
 }
@@ -104,16 +104,18 @@ export function getDemoChallenges(state) {
       ...challenge,
       participant_count: challenge.participant_count + (saved?.participation ? 1 : 0),
       participation: saved?.participation,
+      latest_submission: saved?.submission ? { _id: `${challenge._id}-submission`, ...saved.submission } : null,
     };
   });
 }
 
 export function getDemoSubmissions(state) {
-  return DEMO_CHALLENGES.flatMap((challenge) => {
-    const submission = state[challenge._id]?.submission;
+  return getDemoChallenges(state).flatMap((challenge) => {
+    const submission = challenge.latest_submission;
     if (!submission) return [];
     return [{
       _id: `${challenge._id}-submission`,
+      ...submission,
       challenge,
       summary: submission.summary,
       report_url: submission.report_url,

@@ -1,0 +1,45 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import { api } from "../api";
+import { formatPoints } from "./points";
+import "./coding.css";
+
+export default function CodingResults({ challenges, initialChallengeId = "" }) {
+  const available = useMemo(() => challenges.filter((item) => item.coding_enabled), [challenges]);
+  const [selected, setSelected] = useState(initialChallengeId || available[0]?._id || "");
+  const previousInitial = useRef(initialChallengeId);
+  const [rows, setRows] = useState([]);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [refresh, setRefresh] = useState(0);
+  useEffect(() => {
+    const requestedChanged = previousInitial.current !== initialChallengeId;
+    previousInitial.current = initialChallengeId;
+    setSelected((current) => {
+      const requestedExists = available.some((item) => item._id === initialChallengeId);
+      if (requestedChanged && requestedExists) return initialChallengeId;
+      if (available.some((item) => item._id === current)) return current;
+      return requestedExists ? initialChallengeId : available[0]?._id || "";
+    });
+  }, [available, initialChallengeId]);
+  useEffect(() => {
+    if (!selected || !available.some((item) => item._id === selected)) return;
+    let cancelled = false;
+    setLoading(true);
+    setRows([]);
+    setError("");
+    api(`/challenges/${selected}/coding/results`).then(({ results, warning }) => {
+      if (!cancelled) { setRows(results); setError(warning || ""); }
+    }).catch((err) => { if (!cancelled) setError(err.message); }).finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [selected, refresh, available]);
+  const challenge = available.find((item) => item._id === selected);
+  if (!available.length) return <div className="empty-state"><strong>Nenhum desafio de código</strong><p>Configure a avaliação por código em um rascunho para receber as soluções dos candidatos.</p></div>;
+  return <section className="coding-results"><div className="code-toolbar"><label>Desafio<select value={selected} onChange={(event) => { setRows([]); setSelected(event.target.value); }}>{available.map((item) => <option key={item._id} value={item._id}>{item.title}</option>)}</select></label><button className="outline-button small" onClick={() => setRefresh((x) => x + 1)} disabled={loading}>ATUALIZAR RESULTADOS</button></div>
+    <p className="code-hint">A pontuação automática mostra a melhor solução de cada candidato. A decisão de seleção continua na avaliação da empresa.</p>
+    {error && <p className="form-error" role="alert">{error}</p>}
+    {loading ? <p>Carregando resultados...</p> : !rows.length ? <div className="empty-state"><strong>Nenhum participante ainda</strong></div> : rows.map((row, index) => <article className="code-ranking-row" key={row.talent_id}><div className="code-ranking-heading"><div><span className="eyebrow">POSIÇÃO {index + 1}</span><h3>{row.name}</h3><small>{row.attempts} envio(s) para correção</small></div><strong>{formatPoints(row.score)}<small> / {formatPoints(challenge?.coding_max_points || 100)}</small></strong></div>
+      {row.latest_job && <p>{row.latest_job.status === "processing" || row.latest_job.status === "creating" ? "Correção em andamento. Atualize em alguns instantes." : row.latest_job.status === "service_error" ? "Última tentativa sem nota por falha no executor." : `Última tentativa: ${row.latest_job.passed}/${row.latest_job.total} casos corretos · ${row.latest_job.language}`}</p>}
+      {row.source_code && <details><summary>Ver código da última tentativa</summary><pre>{row.source_code}</pre></details>}
+    </article>)}
+  </section>;
+}
