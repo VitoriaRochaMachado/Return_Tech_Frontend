@@ -4,6 +4,42 @@ Interface web da Return Tech, plataforma que conecta empresas a estudantes e pro
 
 Este repositório contém somente o **frontend**. A API Flask está no projeto `Return_Tech_Backend`.
 
+## Acesso do professor — ambiente pronto
+
+**Abra o projeto no navegador: [Return Tech](https://min-parties-blair-confirmed.trycloudflare.com/).**
+
+O professor utiliza a aplicação já hospedada. Não precisa clonar os repositórios,
+instalar dependências, iniciar um servidor, configurar a AWS ou receber arquivos
+`.env` e chaves `.pem`.
+
+1. Na página inicial, escolha **Estudante / Profissional** ou **Empresa**.
+2. Entre com uma conta existente ou use **Criar conta** no próprio site. Para
+   verificar emails, cadastre um endereço de email real ao qual tenha acesso.
+3. A [Administração](https://min-parties-blair-confirmed.trycloudflare.com/#/admin) utiliza uma conta administrativa já cadastrada.
+   Solicite suas credenciais ao autor por um canal privado. Senhas administrativas
+   não são publicadas neste README.
+
+Como estudante/profissional, é possível participar de desafios publicados, enviar
+respostas e consultar o **Portfólio**. Como empresa, é possível criar desafios de
+relatório ou código, acompanhar **Avaliações** e selecionar perfis na **Shortlist**.
+Novos desafios ficam disponíveis aos participantes depois da aprovação administrativa.
+
+**Disponibilidade:** o site e a API estão na EC2; o MongoDB está no Atlas. O
+Judge0 roda no computador do autor, ligado à EC2 por um túnel SSH. Para avaliar
+a correção automática de código, combine um horário com o autor e confirme que
+o computador, a VM Judge0 e o túnel estão ligados. O professor não precisa executar
+o Judge0 no próprio computador.
+
+**Link temporário:** o endereço HTTPS utiliza um Cloudflare Quick Tunnel e pode
+mudar se esse túnel reiniciar. Se o link não abrir, solicite o endereço atualizado
+ao autor. A equipe deve atualizar este link nos READMEs quando houver mudança.
+
+`localhost` aponta para o computador de quem abre o navegador. Ele é usado apenas
+na apresentação local; para acesso remoto, use o link HTTPS acima.
+
+As seções de instalação, execução local e deploy abaixo são destinadas à equipe
+de desenvolvimento e manutenção.
+
 ## Tecnologias
 
 - React
@@ -20,7 +56,7 @@ A aplicação possui dois fluxos principais:
 - **Estudante/Profissional:** criação de perfil, participação em desafios, envio de soluções, acompanhamento de avaliações e portfólio;
 - **Empresa:** criação de desafios, avaliação de entregas, consulta de candidatos e shortlist.
 
-## Requisitos
+## Requisitos para desenvolvimento local
 
 Antes de começar, instale:
 
@@ -114,7 +150,7 @@ O frontend não acessa o MongoDB diretamente. Toda leitura ou alteração de dad
 
 ## Arquivo `.env` do frontend
 
-Para a configuração local atual, não é necessário criar um `.env` no frontend. O endereço `http://localhost:5000/api` já é utilizado como padrão.
+Não é necessário criar um `.env` no frontend. Em desenvolvimento, o endereço `http://localhost:5000/api` é utilizado como padrão. No build de produção, o padrão é `/api`, no mesmo servidor que entrega o site.
 
 Se futuramente a API for publicada em outro endereço, crie um arquivo `.env` dentro de `Return_Tech_Frontend`:
 
@@ -127,6 +163,8 @@ Depois de modificar esse arquivo, pare o Vite com `Ctrl + C` e execute novamente
 ```powershell
 npm run dev
 ```
+
+No site publicado, gere um novo build depois de alterar `VITE_API_URL`: o Vite incorpora esse valor aos arquivos do frontend. O arquivo `.env.example` mostra as opções sem credenciais.
 
 Nunca envie um `.env` para o GitHub.
 
@@ -257,11 +295,40 @@ A pasta `node_modules` é recriada com `npm install` e não deve ser enviada ao 
 
 ---
 
-# Estado atual
+# Publicação no EC2 com Nginx
 
-Este frontend faz parte de um MVP funcional para desenvolvimento e testes locais. O React ainda precisa ser iniciado no computador com `npm run dev`.
+O frontend e o backend podem compartilhar o mesmo endereço público. O Nginx entrega os arquivos estáticos do frontend e encaminha `/api/` para o Gunicorn em `127.0.0.1:8000`.
 
-Para disponibilizar o sistema publicamente, será necessário hospedar o frontend e configurar `VITE_API_URL` com o endereço público do backend.
+Na pasta do frontend no Ubuntu, gere o build:
+
+```bash
+npm ci
+VITE_API_URL=/api npm run build
+```
+
+A variável definida nesse comando garante o uso de `/api` mesmo se houver um `.env` antigo configurado para localhost. Publique o conteúdo de `dist/` na pasta estática do Nginx, por exemplo `/var/www/returntech`. O servidor de desenvolvimento do Vite não precisa permanecer aberto.
+
+No site do Nginx que usa essa pasta como `root`, configure:
+
+```nginx
+location /api/ {
+    proxy_pass http://127.0.0.1:8000;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+
+location / {
+    try_files $uri $uri/ /index.html;
+}
+```
+
+O `proxy_pass` acima preserva o prefixo `/api`. As rotas da aplicação usam hash, como `/#/talentos` e `/#/desafios/<id>`, e continuam funcionando no endereço público. A configuração padrão de `base` do Vite já atende à publicação na raiz do site.
+
+Depois de publicar, `/api/health` deve responder pela mesma origem que entrega o frontend. O limite de upload do Nginx deve comportar os arquivos permitidos pelo backend.
+
+Referências: [variáveis e modos do Vite](https://vite.dev/guide/env-and-mode) e [proxy_pass do Nginx](https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_pass).
 
 
 ## Enunciados e administração dos CTFs
@@ -273,9 +340,10 @@ Para disponibilizar o sistema publicamente, será necessário hospedar o fronten
 - Cada desafio tem uma página em `/#/desafios/<id>`, acessível pelo botão
   **Ver desafio** e pelo link na tela de envio de soluções. O enunciado
   preserva as quebras de linha digitadas.
-- A área do talento mostra os desafios publicados pelas empresas junto com os
-  exemplos fictícios já existentes. As participações e os envios dos exemplos
-  continuam salvos apenas no navegador; os desafios das empresas usam a API.
+- A área do talento mostra os desafios publicados. Inscrições e entregas usam a
+  API e ficam salvas no banco. Respostas por texto, link, arquivo e código aparecem
+  no Portfólio do participante. Entregas antigas salvas no navegador são importadas
+  automaticamente para o banco quando o respectivo participante acessa o site.
 - A administração do grupo fica em `/#/admin`, com conta de perfil `admin`.
   Empresas e talentos não têm acesso ao painel. Consulte o README do backend
   para criar as contas administrativas pelo comando `create-admin`.
@@ -296,11 +364,11 @@ Essas telas reutilizam os componentes, as cores e os estilos da aplicação.
 
 Se a empresa alterar um enunciado já publicado ou em análise, ele volta a rascunho
 e precisa ser reenviado. Salvar sem mudar os campos não retira a aprovação.
-Desafios que já estavam publicados e os exemplos fictícios continuam disponíveis.
+Desafios publicados continuam disponíveis conforme o prazo e o estado de cada processo.
 
 ## Avaliação automática de código com Judge0
 
-Os desafios reais podem receber uma avaliação por código, com linguagens, um
+Os desafios podem receber uma avaliação por código, com linguagens, um
 exemplo público e casos privados cadastrados pela empresa. Esse fluxo utiliza
 **React → API Flask → Judge0**. O frontend continua acessando somente a API Flask;
 as credenciais do executor ficam no `.env` do backend.
@@ -334,14 +402,18 @@ Para a instalação inicial ou após mudanças no arquivo de dependências, exec
 
 ### Empresa e administração
 
-1. Crie um desafio real e salve-o como rascunho.
-2. Abra **Configurar código**, disponível para a empresa responsável enquanto o
-   rascunho ainda não recebeu tentativas. Cadastre as linguagens, o exemplo e os
-   casos privados no formulário JSON.
-3. Salve a avaliação e use o fluxo existente **Enviar para aprovação**.
-4. A administração pode consultar a avaliação por código ao revisar o desafio,
-   sem editar os casos privados. A publicação continua dependendo de
-   **Aprovar e publicar**.
+1. Em **Criar desafio**, selecione **Código com correção automática (Judge0)** no
+   campo **Tipo de desafio**.
+2. Preencha o enunciado, linguagens, pontuação, exemplo público e casos privados
+   nos campos do formulário. Clique em **Salvar como rascunho**.
+3. Abra o link do desafio salvo e use **Enviar para aprovação**.
+4. A administração revisa o enunciado e a avaliação e escolhe **Aprovar e publicar**
+   ou **Solicitar ajustes**.
+5. As resoluções recebidas, seus autores e notas aparecem em **Avaliações**.
+   Use **Adicionar à shortlist** para reunir o perfil do participante na **Shortlist**.
+
+Para editar a avaliação de um rascunho existente sem tentativas, a empresa
+responsável também pode usar **Configurar código**.
 
 ### Estudantes e profissionais
 
@@ -354,8 +426,9 @@ não reduz a melhor pontuação. O editor preserva o rascunho na sessão do nave
 separado por usuário, desafio e linguagem, e permite acompanhar correções em
 andamento ou consultar resultados após o encerramento.
 
-Os desafios sem avaliação por código e os exemplos fictícios mantêm o envio
-original de resumo, link e, quando aplicável, arquivo.
+Nos desafios sem correção automática, o participante envia resumo, link e,
+quando necessário, arquivo. A entrega pode ser editada até o prazo final ou o
+encerramento. As respostas enviadas permanecem disponíveis no **Portfólio**.
 
 ### Verificação de desenvolvimento
 

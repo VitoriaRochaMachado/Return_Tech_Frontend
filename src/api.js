@@ -1,4 +1,4 @@
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
+const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.PROD ? "/api" : "http://localhost:5000/api");
 
 export function getToken() {
   return localStorage.getItem("return_tech_token");
@@ -16,7 +16,9 @@ export async function api(path, options = {}) {
   try {
     response = await fetch(`${API_URL}${path}`, { ...options, headers });
   } catch {
-    throw new Error("Não foi possível conectar ao backend. Verifique se o Flask está rodando na porta 5000.");
+    throw new Error(import.meta.env.PROD
+      ? "Não foi possível conectar ao servidor. Tente novamente em instantes."
+      : "Não foi possível conectar ao backend. Verifique se o Flask está rodando na porta 5000.");
   }
 
   const contentType = response.headers.get("content-type") || "";
